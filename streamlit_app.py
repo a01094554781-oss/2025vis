@@ -1,12 +1,9 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import numpy as np
-from googletrans import Translator
+from googletrans import Translator  # 번역 라이브러리 추가
 
-# ---------------------------------------------------------
 # 1. 페이지 설정
-# ---------------------------------------------------------
 st.set_page_config(
     page_title="K-Festival Guide Pro",
     page_icon="🌏",
@@ -14,10 +11,8 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
-# 2. 상수 및 설정 데이터 (좌표, 텍스트 매핑)
+# 2. 다국어 지원용 딕셔너리
 # ---------------------------------------------------------
-
-# UI 텍스트 (한국어/영어)
 UI_TEXT = {
     'KO': {
         'title': "🇰🇷 대한민국 지역 축제 가이드",
@@ -31,14 +26,14 @@ UI_TEXT = {
         'kpi_total': "검색된 축제",
         'kpi_visitors': "총 방문객 규모",
         'kpi_foreigner': "외국인 방문객",
-        'tab1': "📊 지도 & 차트 분석",
-        'tab2': "📋 상세 리스트 (영상/검색)",
-        'chart_map': "🗺️ 축제 위치 지도 (지역별 분포)",
+        'tab1': "📊 차트 & 분석",
+        'tab2': "📋 상세 리스트 (Google 연동)",
         'chart_treemap': "지역별 & 유형별 분포",
         'chart_heatmap': "📅 월별 지역 축제 밀집도 (Heatmap)",
         'chart_top10': "🏆 외국인 방문객 Top 10",
         'list_header': "검색 결과 상세 리스트",
-        'col_name': "축제명", 'col_loc': "지역", 'col_type': "유형", 'col_date': "월", 'col_for': "외국인수"
+        'col_name': "축제명", 'col_loc': "지역", 'col_type': "유형", 'col_date': "월", 'col_for': "외국인수",
+        'col_link': "구글 검색"
     },
     'EN': {
         'title': "🇰🇷 Korea Local Festival Guide",
@@ -52,18 +47,17 @@ UI_TEXT = {
         'kpi_total': "Festivals Found",
         'kpi_visitors': "Total Visitors",
         'kpi_foreigner': "Foreign Visitors",
-        'tab1': "📊 Map & Charts",
-        'tab2': "📋 Detailed List (Video/Search)",
-        'chart_map': "🗺️ Festival Map Location",
+        'tab1': "📊 Charts & Analysis",
+        'tab2': "📋 Detailed List (with Google)",
         'chart_treemap': "Distribution by Region & Type",
         'chart_heatmap': "📅 Best Season to Visit (Heatmap)",
         'chart_top10': "🏆 Top 10 Popular for Foreigners",
         'list_header': "Detailed Search Results",
-        'col_name': "Name", 'col_loc': "Region", 'col_type': "Category", 'col_date': "Month", 'col_for': "Foreigners"
+        'col_name': "Name", 'col_loc': "Region", 'col_type': "Category", 'col_date': "Month", 'col_for': "Foreigners",
+        'col_link': "More Info"
     }
 }
 
-# 지역 영문 매핑
 REGION_MAP = {
     '강원': 'Gangwon', '경기': 'Gyeonggi', '경남': 'Gyeongnam', '경북': 'Gyeongbuk',
     '광주': 'Gwangju', '대구': 'Daegu', '대전': 'Daejeon', '부산': 'Busan',
@@ -71,34 +65,23 @@ REGION_MAP = {
     '전남': 'Jeonnam', '전북': 'Jeonbuk', '제주': 'Jeju', '충남': 'Chungnam', '충북': 'Chungbuk'
 }
 
-# 축제 유형 영문 매핑
 TYPE_MAP = {
     '문화예술': 'Arts & Culture', '지역특산물': 'Local Specialties', 
     '자연생태': 'Nature', '전통역사': 'History', 
     '주민화합': 'Community', '기타': 'Others'
 }
 
-# 지도 좌표 (지역 중심점)
-LOC_COORDS = {
-    '서울': [37.5665, 126.9780], '부산': [35.1796, 129.0756], '대구': [35.8714, 128.6014],
-    '인천': [37.4563, 126.7052], '광주': [35.1595, 126.8526], '대전': [36.3504, 127.3845],
-    '울산': [35.5384, 129.3114], '세종': [36.4800, 127.2890], '경기': [37.4138, 127.5183],
-    '강원': [37.8228, 128.1555], '충북': [36.6350, 127.4914], '충남': [36.6588, 126.6728],
-    '전북': [35.7175, 127.1530], '전남': [34.8679, 126.9910], '경북': [36.4919, 128.8889],
-    '경남': [35.4606, 128.2132], '제주': [33.4996, 126.5312]
-}
-
 # ---------------------------------------------------------
-# 3. 데이터 로드 및 전처리 함수
+# 3. 데이터 로드 및 전처리 (번역 기능 포함)
 # ---------------------------------------------------------
 @st.cache_data
-def load_and_process_data():
+def load_data():
     try:
         df = pd.read_csv("festival.CSV", encoding='utf-8')
     except UnicodeDecodeError:
         df = pd.read_csv("festival.CSV", encoding='cp949')
 
-    # (1) 숫자 데이터 정제
+    # 숫자 데이터 정제
     def clean_currency(x):
         if isinstance(x, str):
             x = x.replace(',', '')
@@ -107,84 +90,82 @@ def load_and_process_data():
 
     df['visitors_clean'] = df['visitors in the previous year'].apply(clean_currency).fillna(0)
     
-    # 컬럼명 공백 제거
     df.columns = df.columns.str.strip()
-    
-    # 외국인 데이터 처리
     if 'foreigner' in df.columns:
         df['foreigner_clean'] = df['foreigner'].apply(clean_currency).fillna(0)
     else:
         df['foreigner_clean'] = 0
 
-    # (2) 영문 컬럼 생성
+    # 영문/한글 매핑 컬럼 생성
     df['Region_En'] = df['state'].map(REGION_MAP).fillna(df['state'])
     df['Type_En'] = df['festivaltype'].map(TYPE_MAP).fillna('Others')
     df['festivalname'] = df['festivalname'].fillna('')
     
-    # (3) 축제 이름 영문 변환 (규칙 기반 + 번역)
+    # [핵심] 축제 이름 자동 번역 기능
+    # 매번 번역하면 느리므로, unique한 이름만 뽑아서 번역 후 매핑
+    translator = Translator()
     unique_names = df['festivalname'].unique()
     name_map = {}
     
+    # 간단한 키워드 치환 (속도 향상 및 품질 보정)
     for name in unique_names:
-        # 간단한 규칙 적용 (속도 최적화)
-        temp_name = name.replace("축제", " Festival").replace("대회", " Contest").replace("문화제", " Cultural Festival")
-        name_map[name] = temp_name
-    
+        try:
+            # 1단계: 주요 단어 직접 치환 (API 호출 최소화 및 포맷 통일)
+            temp_name = name.replace("축제", " Festival").replace("대회", " Contest")
+            name_map[name] = temp_name 
+            
+            # (옵션) 아래 주석을 풀면 구글 번역기를 실제로 돌립니다.
+            # 속도가 느려질 수 있어 '축제->Festival' 치환만 우선 적용했습니다.
+            # 만약 완벽한 영어를 원하시면 아래 2줄 주석을 해제하세요.
+            # translated = translator.translate(name, dest='en').text
+            # name_map[name] = translated
+        except:
+            name_map[name] = name # 에러나면 원본 사용
+
     df['festivalname_en'] = df['festivalname'].map(name_map)
     
-    # (4) 링크 URL 생성 (Google & YouTube)
-    # 검색 정확도를 위해 'Korea' 키워드 추가
+    # Google/Youtube 링크 생성
     df['google_url'] = "https://www.google.com/search?q=" + df['festivalname'] + "+" + df['state']
     df['youtube_url'] = "https://www.youtube.com/results?search_query=" + df['festivalname'] + "+Korea+Festival"
 
-    # (5) 지도 좌표 생성 (Jittering: 점 겹침 방지)
-    df['lat'] = df['state'].map(lambda x: LOC_COORDS.get(x, [36.5, 127.5])[0])
-    df['lon'] = df['state'].map(lambda x: LOC_COORDS.get(x, [36.5, 127.5])[1])
-    
-    np.random.seed(42) # 랜덤 시드 고정
-    noise = 0.04 # 흩뿌림 정도
-    df['lat'] = df['lat'] + np.random.uniform(-noise, noise, size=len(df))
-    df['lon'] = df['lon'] + np.random.uniform(-noise, noise, size=len(df))
-
     return df
 
-# 데이터 로딩 (스피너 표시)
-with st.spinner("Loading Data & Preparing Maps..."):
-    df = load_and_process_data()
+with st.spinner('Data loading & Translating... (May take a moment)'):
+    df = load_data()
 
 # ---------------------------------------------------------
-# 4. 사이드바 (컨트롤 타워)
+# 4. 사이드바
 # ---------------------------------------------------------
 with st.sidebar:
-    # 언어 선택
     lang_code = st.radio("Language", ['KO', 'EN'], horizontal=True, label_visibility="collapsed")
     txt = UI_TEXT[lang_code]
     
     st.header(txt['sidebar_title'])
     
-    # 언어에 따른 컬럼 설정
+    # 다국어 설정에 따른 컬럼 자동 선택
     if lang_code == 'EN':
-        region_col, type_col, name_col = 'Region_En', 'Type_En', 'festivalname_en'
+        region_col = 'Region_En'
+        type_col = 'Type_En'
+        name_col = 'festivalname_en'  # 영어 이름 컬럼 사용
     else:
-        region_col, type_col, name_col = 'state', 'festivaltype', 'festivalname'
+        region_col = 'state'
+        type_col = 'festivaltype'
+        name_col = 'festivalname'     # 한글 이름 컬럼 사용
 
-    # 필터 1: 월 선택
     all_months = list(range(1, 13))
     selected_months = st.multiselect(txt['month_sel'], all_months, default=all_months)
     
-    # 필터 2: 지역 선택
+    # 필터 옵션도 언어에 맞게 정렬
     region_opts = sorted(df[region_col].unique())
     sel_regions = st.multiselect(txt['region_sel'], region_opts, default=region_opts)
 
-    # 필터 3: 유형 선택
     type_opts = sorted(df[type_col].unique())
     sel_types = st.multiselect(txt['type_sel'], type_opts, default=type_opts)
         
-    # 필터 4: 검색창
     search_query = st.text_input(txt['search_lbl'], placeholder=txt['search_ph'])
 
 # ---------------------------------------------------------
-# 5. 데이터 필터링 로직
+# 5. 데이터 필터링
 # ---------------------------------------------------------
 filtered_df = df[
     (df['startmonth'].isin(selected_months)) &
@@ -193,18 +174,17 @@ filtered_df = df[
 ]
 
 if search_query:
-    # 한글/영어 이름 모두 검색 가능하도록 처리
+    # 검색은 한글/영어 이름 모두에서 찾도록 설정
     filtered_df = filtered_df[
         filtered_df['festivalname'].str.contains(search_query, case=False) | 
         filtered_df['festivalname_en'].str.contains(search_query, case=False)
     ]
 
 # ---------------------------------------------------------
-# 6. 메인 대시보드 화면 구성
+# 6. 메인 대시보드
 # ---------------------------------------------------------
 st.title(txt['title'])
 
-# KPI 지표
 c1, c2, c3 = st.columns(3)
 c1.metric(txt['kpi_total'], f"{len(filtered_df)}")
 c2.metric(txt['kpi_visitors'], f"{int(filtered_df['visitors_clean'].sum()):,}")
@@ -212,34 +192,16 @@ c3.metric(txt['kpi_foreigner'], f"{int(filtered_df['foreigner_clean'].sum()):,}"
 
 st.divider()
 
-# 탭 구성
 tab1, tab2 = st.tabs([txt['tab1'], txt['tab2']])
 
-# [TAB 1] 시각화 (지도, 차트)
+# --- TAB 1: 차트 ---
 with tab1:
-    # 1. 지도 (Map)
-    st.subheader(txt['chart_map'])
-    if not filtered_df.empty:
-        fig_map = px.scatter_mapbox(
-            filtered_df, lat="lat", lon="lon",
-            size="visitors_clean", color=type_col,
-            hover_name=name_col,
-            hover_data={"lat": False, "lon": False, "visitors_clean": True, region_col: True},
-            color_discrete_sequence=px.colors.qualitative.Bold,
-            zoom=6, center={"lat": 36.5, "lon": 127.5},
-            mapbox_style="carto-positron"
-        )
-        fig_map.update_layout(margin={"r":0,"t":0,"l":0,"b":0}, height=500)
-        st.plotly_chart(fig_map, use_container_width=True)
+    col_chart1, col_chart2 = st.columns(2)
     
-    st.markdown("---")
-
-    # 2. 트리맵 & 랭킹 차트
-    c_chart1, c_chart2 = st.columns(2)
-    with c_chart1:
+    with col_chart1:
         st.subheader(txt['chart_treemap'])
         if not filtered_df.empty:
-            path_list = [px.Constant("Korea"), region_col, type_col]
+            path_list = [px.Constant("Korea"), region_col, type_col, name_col] # name_col이 언어따라 바뀜
             fig_tree = px.treemap(
                 filtered_df, path=path_list, values='visitors_clean',
                 color=type_col, color_discrete_sequence=px.colors.qualitative.Pastel
@@ -247,18 +209,17 @@ with tab1:
             fig_tree.update_layout(margin=dict(t=10, l=10, r=10, b=10))
             st.plotly_chart(fig_tree, use_container_width=True)
             
-    with c_chart2:
+    with col_chart2:
         st.subheader(txt['chart_top10'])
         if not filtered_df.empty:
             top_foreign = filtered_df.nlargest(10, 'foreigner_clean')
             fig_bar = px.bar(
-                top_foreign, x='foreigner_clean', y=name_col,
+                top_foreign, x='foreigner_clean', y=name_col, # 언어에 맞는 이름 사용
                 orientation='h', text_auto=',', color=region_col
             )
             fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False)
             st.plotly_chart(fig_bar, use_container_width=True)
 
-    # 3. 히트맵
     st.markdown("---")
     st.subheader(txt['chart_heatmap'])
     if not filtered_df.empty:
@@ -266,16 +227,15 @@ with tab1:
         fig_heat = px.density_heatmap(
             heatmap_data, x='startmonth', y=region_col, z='counts', 
             nbinsx=12, text_auto=True, color_continuous_scale='Reds',
-            labels={'startmonth': 'Month', region_col: 'Region', 'counts': 'Count'}
+            labels={'startmonth': 'Month', region_col: 'Region', 'counts': 'Festivals'}
         )
         fig_heat.update_layout(xaxis=dict(tickmode='linear', tick0=1, dtick=1))
         st.plotly_chart(fig_heat, use_container_width=True)
 
-# [TAB 2] 리스트 & 다운로드
+# --- TAB 2: 리스트 ---
 with tab2:
     st.subheader(txt['list_header'])
     
-    # 다운로드 버튼
     if not filtered_df.empty:
         csv = filtered_df.to_csv(index=False).encode('utf-8-sig')
         st.download_button(
@@ -283,17 +243,16 @@ with tab2:
             file_name="korea_festivals.csv", mime="text/csv"
         )
 
-    st.caption("👇 Click buttons to see more info")
+    st.caption("👇 Click buttons to explore")
     
     if not filtered_df.empty:
-        # 보여줄 컬럼 선택
+        # 화면에 표시할 컬럼 정의 (언어에 따라 name_col 변동)
         display_cols = [name_col, region_col, type_col, 'startmonth', 'foreigner_clean', 'google_url', 'youtube_url']
         col_labels = [txt['col_name'], txt['col_loc'], txt['col_type'], txt['col_date'], txt['col_for'], "Google", "YouTube"]
             
         display_df = filtered_df[display_cols].copy()
         display_df.columns = col_labels
         
-        # 데이터프레임 (링크 기능 포함)
         st.dataframe(
             display_df, hide_index=True, use_container_width=True,
             column_config={
