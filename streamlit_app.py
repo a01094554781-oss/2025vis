@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from googletrans import Translator  # 번역 라이브러리 추가
 
 # 1. 페이지 설정
 st.set_page_config(
@@ -27,7 +28,8 @@ UI_TEXT = {
         'kpi_foreigner': "외국인 방문객",
         'tab1': "📊 차트 & 분석",
         'tab2': "📋 상세 리스트 (Google 연동)",
-        'chart_treemap': "지역별 & 유형별 분포 (Box Size: 방문객 수)",
+        'chart_treemap': "지역별 & 유형별 분포",
+        'chart_heatmap': "📅 월별 지역 축제 밀집도 (Heatmap)",
         'chart_top10': "🏆 외국인 방문객 Top 10",
         'list_header': "검색 결과 상세 리스트",
         'col_name': "축제명", 'col_loc': "지역", 'col_type': "유형", 'col_date': "월", 'col_for': "외국인수",
@@ -48,6 +50,7 @@ UI_TEXT = {
         'tab1': "📊 Charts & Analysis",
         'tab2': "📋 Detailed List (with Google)",
         'chart_treemap': "Distribution by Region & Type",
+        'chart_heatmap': "📅 Best Season to Visit (Heatmap)",
         'chart_top10': "🏆 Top 10 Popular for Foreigners",
         'list_header': "Detailed Search Results",
         'col_name': "Name", 'col_loc': "Region", 'col_type': "Category", 'col_date': "Month", 'col_for': "Foreigners",
@@ -69,7 +72,7 @@ TYPE_MAP = {
 }
 
 # ---------------------------------------------------------
-# 3. 데이터 로드 및 전처리
+# 3. 데이터 로드 및 전처리 (번역 기능 포함)
 # ---------------------------------------------------------
 @st.cache_data
 def load_data():
@@ -87,7 +90,6 @@ def load_data():
 
     df['visitors_clean'] = df['visitors in the previous year'].apply(clean_currency).fillna(0)
     
-    # 컬럼 공백 제거 및 외국인 데이터 처리
     df.columns = df.columns.str.strip()
     if 'foreigner' in df.columns:
         df['foreigner_clean'] = df['foreigner'].apply(clean_currency).fillna(0)
@@ -99,16 +101,40 @@ def load_data():
     df['Type_En'] = df['festivaltype'].map(TYPE_MAP).fillna('Others')
     df['festivalname'] = df['festivalname'].fillna('')
     
-    # Google 검색 링크 컬럼 생성 (검색어 = 축제이름 + 지역)
-    # 한글/영어 검색 쿼리를 모두 지원하도록 URL 인코딩은 브라우저가 처리
+    # [핵심] 축제 이름 자동 번역 기능
+    # 매번 번역하면 느리므로, unique한 이름만 뽑아서 번역 후 매핑
+    translator = Translator()
+    unique_names = df['festivalname'].unique()
+    name_map = {}
+    
+    # 간단한 키워드 치환 (속도 향상 및 품질 보정)
+    for name in unique_names:
+        try:
+            # 1단계: 주요 단어 직접 치환 (API 호출 최소화 및 포맷 통일)
+            temp_name = name.replace("축제", " Festival").replace("대회", " Contest")
+            name_map[name] = temp_name 
+            
+            # (옵션) 아래 주석을 풀면 구글 번역기를 실제로 돌립니다.
+            # 속도가 느려질 수 있어 '축제->Festival' 치환만 우선 적용했습니다.
+            # 만약 완벽한 영어를 원하시면 아래 2줄 주석을 해제하세요.
+            # translated = translator.translate(name, dest='en').text
+            # name_map[name] = translated
+        except:
+            name_map[name] = name # 에러나면 원본 사용
+
+    df['festivalname_en'] = df['festivalname'].map(name_map)
+    
+    # Google/Youtube 링크 생성
     df['google_url'] = "https://www.google.com/search?q=" + df['festivalname'] + "+" + df['state']
+    df['youtube_url'] = "https://www.youtube.com/results?search_query=" + df['festivalname'] + "+Korea+Festival"
 
     return df
 
-df = load_data()
+with st.spinner('Data loading & Translating... (May take a moment)'):
+    df = load_data()
 
 # ---------------------------------------------------------
-# 4. 사이드바 (핵심 컨트롤 타워)
+# 4. 사이드바
 # ---------------------------------------------------------
 with st.sidebar:
     lang_code = st.radio("Language", ['KO', 'EN'], horizontal=True, label_visibility="collapsed")
@@ -116,37 +142,31 @@ with st.sidebar:
     
     st.header(txt['sidebar_title'])
     
-    # 1. 월 선택
+    # 다국어 설정에 따른 컬럼 자동 선택
+    if lang_code == 'EN':
+        region_col = 'Region_En'
+        type_col = 'Type_En'
+        name_col = 'festivalname_en'  # 영어 이름 컬럼 사용
+    else:
+        region_col = 'state'
+        type_col = 'festivaltype'
+        name_col = 'festivalname'     # 한글 이름 컬럼 사용
+
     all_months = list(range(1, 13))
     selected_months = st.multiselect(txt['month_sel'], all_months, default=all_months)
     
-    # 2. 지역 선택 (언어에 따라 옵션 변경)
-    if lang_code == 'EN':
-        region_opts = sorted(df['Region_En'].unique())
-        region_col = 'Region_En'
-        sel_regions = st.multiselect(txt['region_sel'], region_opts, default=region_opts)
-    else:
-        region_opts = sorted(df['state'].unique())
-        region_col = 'state'
-        sel_regions = st.multiselect(txt['region_sel'], region_opts, default=region_opts)
+    # 필터 옵션도 언어에 맞게 정렬
+    region_opts = sorted(df[region_col].unique())
+    sel_regions = st.multiselect(txt['region_sel'], region_opts, default=region_opts)
 
-    # 3. 유형 선택 (추가됨!)
-    if lang_code == 'EN':
-        type_opts = sorted(df['Type_En'].unique())
-        type_col = 'Type_En'
-        sel_types = st.multiselect(txt['type_sel'], type_opts, default=type_opts)
-    else:
-        type_opts = sorted(df['festivaltype'].unique())
-        type_col = 'festivaltype'
-        sel_types = st.multiselect(txt['type_sel'], type_opts, default=type_opts)
+    type_opts = sorted(df[type_col].unique())
+    sel_types = st.multiselect(txt['type_sel'], type_opts, default=type_opts)
         
-    # 4. 검색창
     search_query = st.text_input(txt['search_lbl'], placeholder=txt['search_ph'])
 
 # ---------------------------------------------------------
 # 5. 데이터 필터링
 # ---------------------------------------------------------
-# 선택한 조건들이 모두 AND 조건으로 연결됨
 filtered_df = df[
     (df['startmonth'].isin(selected_months)) &
     (df[region_col].isin(sel_regions)) &
@@ -154,14 +174,17 @@ filtered_df = df[
 ]
 
 if search_query:
-    filtered_df = filtered_df[filtered_df['festivalname'].str.contains(search_query, case=False)]
+    # 검색은 한글/영어 이름 모두에서 찾도록 설정
+    filtered_df = filtered_df[
+        filtered_df['festivalname'].str.contains(search_query, case=False) | 
+        filtered_df['festivalname_en'].str.contains(search_query, case=False)
+    ]
 
 # ---------------------------------------------------------
 # 6. 메인 대시보드
 # ---------------------------------------------------------
 st.title(txt['title'])
 
-# KPI
 c1, c2, c3 = st.columns(3)
 c1.metric(txt['kpi_total'], f"{len(filtered_df)}")
 c2.metric(txt['kpi_visitors'], f"{int(filtered_df['visitors_clean'].sum()):,}")
@@ -169,65 +192,75 @@ c3.metric(txt['kpi_foreigner'], f"{int(filtered_df['foreigner_clean'].sum()):,}"
 
 st.divider()
 
-# 레이아웃: 왼쪽 차트, 오른쪽 리스트 (공간 활용)
-# 모바일에서는 자동으로 상하 배치됨
-col_chart, col_list = st.columns([1, 1])
+tab1, tab2 = st.tabs([txt['tab1'], txt['tab2']])
 
-with col_chart:
-    st.subheader(txt['chart_treemap'])
-    if not filtered_df.empty:
-        # Treemap: 선택된 데이터만 보여줌
-        path_list = [px.Constant("Korea"), region_col, type_col]
-        fig_tree = px.treemap(
-            filtered_df, 
-            path=path_list, 
-            values='visitors_clean',
-            color=type_col,
-            color_discrete_sequence=px.colors.qualitative.Pastel
-        )
-        fig_tree.update_layout(margin=dict(t=10, l=10, r=10, b=10))
-        st.plotly_chart(fig_tree, use_container_width=True)
+# --- TAB 1: 차트 ---
+with tab1:
+    col_chart1, col_chart2 = st.columns(2)
     
+    with col_chart1:
+        st.subheader(txt['chart_treemap'])
+        if not filtered_df.empty:
+            path_list = [px.Constant("Korea"), region_col, type_col, name_col] # name_col이 언어따라 바뀜
+            fig_tree = px.treemap(
+                filtered_df, path=path_list, values='visitors_clean',
+                color=type_col, color_discrete_sequence=px.colors.qualitative.Pastel
+            )
+            fig_tree.update_layout(margin=dict(t=10, l=10, r=10, b=10))
+            st.plotly_chart(fig_tree, use_container_width=True)
+            
+    with col_chart2:
+        st.subheader(txt['chart_top10'])
+        if not filtered_df.empty:
+            top_foreign = filtered_df.nlargest(10, 'foreigner_clean')
+            fig_bar = px.bar(
+                top_foreign, x='foreigner_clean', y=name_col, # 언어에 맞는 이름 사용
+                orientation='h', text_auto=',', color=region_col
+            )
+            fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False)
+            st.plotly_chart(fig_bar, use_container_width=True)
+
     st.markdown("---")
-    st.subheader(txt['chart_top10'])
+    st.subheader(txt['chart_heatmap'])
     if not filtered_df.empty:
-        top_foreign = filtered_df.nlargest(10, 'foreigner_clean')
-        fig_bar = px.bar(
-            top_foreign, x='foreigner_clean', y='festivalname', orientation='h',
-            text_auto=',', color=region_col
+        heatmap_data = filtered_df.groupby([region_col, 'startmonth']).size().reset_index(name='counts')
+        fig_heat = px.density_heatmap(
+            heatmap_data, x='startmonth', y=region_col, z='counts', 
+            nbinsx=12, text_auto=True, color_continuous_scale='Reds',
+            labels={'startmonth': 'Month', region_col: 'Region', 'counts': 'Festivals'}
         )
-        fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False)
-        st.plotly_chart(fig_bar, use_container_width=True)
+        fig_heat.update_layout(xaxis=dict(tickmode='linear', tick0=1, dtick=1))
+        st.plotly_chart(fig_heat, use_container_width=True)
 
-with col_list:
+# --- TAB 2: 리스트 ---
+with tab2:
     st.subheader(txt['list_header'])
-    st.caption("👇 Click the link to see details on Google")
     
     if not filtered_df.empty:
-        # 화면에 보여줄 컬럼 정리
-        if lang_code == 'EN':
-            display_cols = ['festivalname', 'Region_En', 'Type_En', 'startmonth', 'foreigner_clean', 'google_url']
-            col_labels = [txt['col_name'], txt['col_loc'], txt['col_type'], txt['col_date'], txt['col_for'], txt['col_link']]
-        else:
-            display_cols = ['festivalname', 'state', 'festivaltype', 'startmonth', 'foreigner_clean', 'google_url']
-            col_labels = [txt['col_name'], txt['col_loc'], txt['col_type'], txt['col_date'], txt['col_for'], txt['col_link']]
+        csv = filtered_df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            label="📥 Download List (CSV)", data=csv,
+            file_name="korea_festivals.csv", mime="text/csv"
+        )
+
+    st.caption("👇 Click buttons to explore")
+    
+    if not filtered_df.empty:
+        # 화면에 표시할 컬럼 정의 (언어에 따라 name_col 변동)
+        display_cols = [name_col, region_col, type_col, 'startmonth', 'foreigner_clean', 'google_url', 'youtube_url']
+        col_labels = [txt['col_name'], txt['col_loc'], txt['col_type'], txt['col_date'], txt['col_for'], "Google", "YouTube"]
             
         display_df = filtered_df[display_cols].copy()
         display_df.columns = col_labels
         
-        # 데이터프레임 표시 (LinkColumn 사용)
         st.dataframe(
-            display_df,
-            hide_index=True,
-            use_container_width=True,
+            display_df, hide_index=True, use_container_width=True,
             column_config={
-                txt['col_link']: st.column_config.LinkColumn(
-                    label=txt['col_link'], 
-                    display_text="🔍 Search" if lang_code == 'EN' else "🔍 검색"
-                ),
+                "Google": st.column_config.LinkColumn(display_text="🔍 Info" if lang_code == 'EN' else "🔍 정보"),
+                "YouTube": st.column_config.LinkColumn(display_text="📺 Video" if lang_code == 'EN' else "📺 영상"),
                 txt['col_for']: st.column_config.NumberColumn(format="%d")
             },
-            height=600 # 리스트 높이 고정 (스크롤 가능)
+            height=600
         )
     else:
-        st.warning("No festivals found with current filters.")
+        st.warning("No festivals found.")
