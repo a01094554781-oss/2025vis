@@ -226,10 +226,8 @@ categories = sorted(list(df['category'].unique()))
 selected_categories = st.sidebar.multiselect(txt['filter_cat'], categories, default=[])
 
 # 데이터 필터링 로직
-if selected_months: 
-    filtered_df = df[df['month'].isin(selected_months)]
-else: 
-    filtered_df = df # 선택 안하면 전체
+if selected_months: filtered_df = df[df['month'].isin(selected_months)]
+else: filtered_df = df # 선택 안하면 전체
 
 if selected_regions: filtered_df = filtered_df[filtered_df[r_col].isin(selected_regions)]
 if selected_categories: filtered_df = filtered_df[filtered_df['category'].isin(selected_categories)]
