@@ -30,17 +30,14 @@ def load_data():
         except:
             return pd.DataFrame()
 
-    # 1. 컬럼명 소문자 변환 및 공백 제거
     df.columns = df.columns.str.replace(' ', '').str.strip().str.lower()
 
-    # 2. 컬럼 매핑 (User csv -> Code variable)
     rename_map = {
         'state': 'region', 'festivalname': 'name', 'festivaltype': 'category',
         'startmonth': 'month', 'foreigner': 'visitors', 'venue': 'place'
     }
     df = df.rename(columns=rename_map)
 
-    # 3. 필수 데이터 전처리
     if 'visitors' in df.columns:
         df['visitors'] = df['visitors'].astype(str).str.replace(',', '').str.replace('미집계', '0').str.replace('최초행사', '0')
         df['visitors'] = pd.to_numeric(df['visitors'], errors='coerce').fillna(0).astype(int)
@@ -52,13 +49,11 @@ def load_data():
     else:
         df['month'] = 0
 
-    # 4. [NEW] 구글 검색 링크 생성
-    # 클릭하면 바로 구글 검색 결과가 새 탭에 뜨도록 URL 생성
-    df['link'] = "https://www.google.com/search?q=" + df['name'].astype(str) + "+축제"
+    # 구글 검색 링크
+    df['link'] = "https://www.google.com/search?q=" + df['name'].astype(str) + "+Festival+Korea"
 
     return df
 
-# 좌표 데이터
 LAT_LON_DICT = {
     '서울': [37.5665, 126.9780], '부산': [35.1796, 129.0756], '대구': [35.8714, 128.6014],
     '인천': [37.4563, 126.7052], '광주': [35.1595, 126.8526], '대전': [36.3504, 127.3845],
@@ -76,7 +71,6 @@ REGION_EN_DICT = {
     '제주': 'Jeju'
 }
 
-# 데이터 로딩 실행
 try:
     df = load_data()
     if not df.empty and 'region' in df.columns:
@@ -86,44 +80,37 @@ try:
         df['lat'] = df['lat_base'] + np.random.normal(0, 0.04, len(df))
         df['lon'] = df['lon_base'] + np.random.normal(0, 0.04, len(df))
         df['region_en'] = df['region_short'].map(REGION_EN_DICT).fillna(df['region'])
-        # 지도 점 크기 (로그 스케일)
         df['size_scale'] = np.log1p(df['visitors']) + 3 
     else:
-        st.error("Data Error: CSV structure mismatch.")
+        st.error("Data Error.")
         st.stop()
 except Exception as e:
-    st.error(f"Critical Error: {e}")
+    st.error(f"Error: {e}")
     st.stop()
 
 # ---------------------------------------------------------
-# 3. 🧠 [업그레이드] AI 가이드 로직 (실제 데이터 검색)
+# 3. AI 가이드 로직
 # ---------------------------------------------------------
 def get_smart_response(user_input, dataframe, lang='en'):
     user_input = user_input.lower()
+    filtered_ai = dataframe.copy()
     
-    # 1. 사용자가 원하는 지역 찾기
     found_region = None
-    target_df = dataframe.copy() # 전체 데이터에서 시작
-    
-    # 영어 지역명 검색
     for kor, eng in REGION_EN_DICT.items():
         if eng.lower() in user_input or kor in user_input:
-            target_df = target_df[target_df['region_en'] == eng] # 해당 지역으로 데이터 축소
+            filtered_ai = filtered_ai[filtered_ai['region_en'] == eng]
             found_region = eng
             break
             
-    # 2. 사용자가 원하는 카테고리 찾기
     found_cat = None
     for cat in dataframe['category'].unique():
         if str(cat).lower() in user_input:
-            target_df = target_df[target_df['category'] == cat] # 해당 카테고리로 데이터 축소
+            filtered_ai = filtered_ai[filtered_ai['category'] == cat]
             found_cat = cat
             break
 
-    # 3. 결과 도출 (필터링된 데이터 중에서 추천)
-    if not target_df.empty:
-        # 방문객 많은 순으로 정렬해서 상위 1개 추천
-        pick = target_df.sort_values('visitors', ascending=False).iloc[0]
+    if not filtered_ai.empty:
+        pick = filtered_ai.sort_values('visitors', ascending=False).iloc[0]
         visit_fmt = f"{pick['visitors']:,}"
         
         if lang == 'en':
@@ -135,8 +122,6 @@ def get_smart_response(user_input, dataframe, lang='en'):
             - 🗓️ **Month:** {pick['month']}
             - 🎨 **Type:** {pick['category']}
             - 👥 **Foreign Visitors:** {visit_fmt}
-            
-            *(Found {len(target_df)} festivals matching your request)*
             """
         else:
             return f"""
@@ -147,13 +132,11 @@ def get_smart_response(user_input, dataframe, lang='en'):
             - 🗓️ **개최월:** {pick['month']}월
             - 🎨 **유형:** {pick['category']}
             - 👥 **외국인 방문객:** {visit_fmt}명
-            
-            *(요청하신 조건에 맞는 축제 {len(target_df)}개를 찾았습니다)*
             """
     else:
         if lang == 'en':
             msg = "🤔 I couldn't find any festival."
-            if found_region: msg += f" (I looked in **{found_region}**, but found nothing matching.)"
+            if found_region: msg += f" (I looked in **{found_region}**, but found nothing.)"
             return msg + " Try asking for 'Seoul' or 'Busan'."
         else:
             msg = "🤔 조건에 맞는 축제가 없네요."
@@ -161,14 +144,14 @@ def get_smart_response(user_input, dataframe, lang='en'):
             return msg + " 다른 지역이나 키워드로 물어봐주세요."
 
 # ---------------------------------------------------------
-# 4. UI 텍스트 사전
+# 4. UI 텍스트
 # ---------------------------------------------------------
 UI_TEXT = {
     'ko': {
         'title': "🇰🇷 2025 한국 지역축제 가이드",
         'subtitle': "데이터로 만나는 **{}**개의 한국 축제",
         'sidebar_title': "🔍 축제 찾기",
-        'filter_month': "월 선택 (여러 개 선택 가능)",
+        'filter_month': "월 선택 (다중 선택)",
         'filter_region': "지역 선택",
         'filter_cat': "관심사 (축제 유형)",
         'kpi_total': "검색된 축제",
@@ -201,7 +184,7 @@ UI_TEXT = {
 }
 
 # ---------------------------------------------------------
-# 5. 레이아웃 & 필터링 (월 선택 기능 강화!)
+# 5. 레이아웃
 # ---------------------------------------------------------
 lang_option = st.sidebar.radio("Language", ["English", "한국어"], horizontal=True)
 lang = 'en' if lang_option == "English" else 'ko'
@@ -210,13 +193,8 @@ txt = UI_TEXT[lang]
 st.sidebar.markdown("---")
 st.sidebar.header(txt['sidebar_title'])
 
-# [핵심 변경] 월 선택을 MultiSelect로 변경 (띄엄띄엄 선택 가능)
 month_options = list(range(1, 13))
-selected_months = st.sidebar.multiselect(
-    txt['filter_month'], 
-    month_options, 
-    default=[3, 4, 5, 9, 10] # 봄/가을 기본 선택
-)
+selected_months = st.sidebar.multiselect(txt['filter_month'], month_options, default=[3, 4, 5, 9, 10])
 
 r_col = 'region_en' if lang == 'en' else 'region'
 regions = sorted(list(df[r_col].unique()))
@@ -225,18 +203,11 @@ selected_regions = st.sidebar.multiselect(txt['filter_region'], regions, default
 categories = sorted(list(df['category'].unique()))
 selected_categories = st.sidebar.multiselect(txt['filter_cat'], categories, default=[])
 
-# 데이터 필터링 로직
-if selected_months: 
-    filtered_df = df[df['month'].isin(selected_months)]
-else: 
-    filtered_df = df # 선택 안하면 전체
-
+if selected_months: filtered_df = df[df['month'].isin(selected_months)]
+else: filtered_df = df 
 if selected_regions: filtered_df = filtered_df[filtered_df[r_col].isin(selected_regions)]
 if selected_categories: filtered_df = filtered_df[filtered_df['category'].isin(selected_categories)]
 
-# ---------------------------------------------------------
-# 6. 메인 대시보드
-# ---------------------------------------------------------
 st.title(txt['title'])
 st.markdown(txt['subtitle'].format(len(filtered_df)))
 st.markdown("---")
@@ -253,7 +224,7 @@ else:
     m3.metric(txt['kpi_visitor'], "-")
 
 # ---------------------------------------------------------
-# [Main Visual] 지도 (확대/축소 최적화)
+# [Main Visual] 다크 모드 지도 (Dark Matter)
 # ---------------------------------------------------------
 st.markdown("### 🗺️ Festival Map")
 if not filtered_df.empty:
@@ -264,24 +235,23 @@ if not filtered_df.empty:
         size="size_scale",
         hover_name="name", 
         hover_data={r_col:True, "visitors":True, "lat":False, "lon":False, "size_scale":False},
-        zoom=6, # 기본 줌 레벨
-        height=550,
-        mapbox_style="carto-positron",
-        color_discrete_sequence=px.colors.qualitative.Bold 
+        zoom=6, height=550,
+        # [변경] 다크 모드에 어울리는 'carto-darkmatter' 스타일 적용
+        mapbox_style="carto-darkmatter",
+        # [변경] 형광/비비드 컬러 적용
+        color_discrete_sequence=px.colors.qualitative.Vivid 
     )
-    # 줌 컨트롤 활성화
     fig_map.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
     st.plotly_chart(fig_map, use_container_width=True)
 else:
     st.warning("No Data found.")
 
 # ---------------------------------------------------------
-# [List View] 구글 검색 버튼 탑재 (LinkColumn)
+# [List View]
 # ---------------------------------------------------------
 with st.expander(txt['tab_list'], expanded=True):
     if not filtered_df.empty:
         list_df = filtered_df[['name', 'category', r_col, 'place', 'month', 'visitors', 'link']].sort_values('visitors', ascending=False)
-        
         st.dataframe(
             list_df,
             use_container_width=True,
@@ -295,44 +265,43 @@ with st.expander(txt['tab_list'], expanded=True):
                 "visitors": st.column_config.ProgressColumn(
                     txt['col_vis'], format="%d", min_value=0, max_value=int(df['visitors'].max())
                 ),
-                # [핵심] 구글 검색 버튼
-                "link": st.column_config.LinkColumn(
-                    txt['col_link'], display_text="🔍 정보 보기"
-                )
+                "link": st.column_config.LinkColumn(txt['col_link'], display_text="🔍 Google")
             }
         )
     else:
         st.info("No Data")
 
 # ---------------------------------------------------------
-# [Tabs] 상세 분석 & AI
+# [Tabs]
 # ---------------------------------------------------------
 st.markdown("---")
 tab1, tab2, tab3 = st.tabs([txt['tab_rank'], txt['tab_season'], txt['tab_ai']])
 
-# Tab 1: 랭킹 + 검색 버튼
+# Tab 1: 랭킹 (Plasma 컬러 적용)
 with tab1:
     st.subheader(txt['tab_rank'])
     if not filtered_df.empty:
         rank_df = filtered_df[filtered_df['visitors'] > 0].sort_values('visitors', ascending=False).head(10)
         
-        col_chart, col_list = st.columns([1, 1])
+        col_rank_chart, col_rank_list = st.columns([1, 1])
         
-        with col_chart:
+        with col_rank_chart:
+            # [변경] 'Plasma' 컬러 스케일 적용 (보라~노랑)
             fig_bar = px.bar(rank_df, x='visitors', y='name', orientation='h', 
                              color='visitors', text='visitors', 
-                             color_continuous_scale='Viridis') 
+                             color_continuous_scale='Plasma', 
+                             title="Top 10 Chart")
             fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, height=400)
             st.plotly_chart(fig_bar, use_container_width=True)
             
-        with col_list:
+        with col_rank_list:
             st.markdown("#### Top 10 List")
             st.dataframe(
                 rank_df[['name', 'visitors', 'link']],
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "name": txt['col_name'],
+                    "name": st.column_config.TextColumn(txt['col_name']),
                     "visitors": st.column_config.NumberColumn(txt['col_vis']),
                     "link": st.column_config.LinkColumn(txt['col_link'], display_text="🔍 Go")
                 }
@@ -354,10 +323,9 @@ with tab2:
                 with st.container(border=True):
                     st.markdown(f"**{row['name']}**")
                     st.caption(f"📍 {row[r_col]}")
-                    # 카드에도 구글 링크 추가
                     st.markdown(f"[🔍 Google]({row['link']})")
 
-# Tab 3: AI 가이드 (똑똑해짐)
+# Tab 3: AI 가이드
 with tab3:
     col_ai_L, col_ai_R = st.columns([2, 1])
     with col_ai_L:
@@ -371,9 +339,7 @@ with tab3:
         if prompt := st.chat_input("Ex: Food festivals in Seoul"):
             st.session_state.messages.append({"role": "user", "content": prompt})
             st.chat_message("user").write(prompt)
-            
             ai_response = get_smart_response(prompt, df, lang)
-            
             st.session_state.messages.append({"role": "assistant", "content": ai_response})
             st.chat_message("assistant").write(ai_response)
     
