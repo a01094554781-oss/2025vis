@@ -29,6 +29,7 @@ UI_TEXT = {
         'kpi_foreigner': "외국인 방문객",
         'tab1': "📊 지도 & 차트 분석",
         'tab2': "📋 상세 리스트 (카드 보기)",
+        'tab3': "🌸 계절별 추천",
         'chart_map': "🗺️ 축제 위치 지도 (지역별 분포)",
         'chart_treemap': "지역별 & 유형별 분포",
         'chart_heatmap': "📅 월별 지역 축제 밀집도 (Heatmap)",
@@ -36,7 +37,12 @@ UI_TEXT = {
         'list_header': "검색 결과 상세 리스트",
         'col_name': "축제명", 'col_loc': "지역", 'col_type': "유형", 'col_date': "월", 'col_for': "외국인수",
         'btn_google': "🔍 구글 검색",
-        'btn_youtube': "📺 유튜브 영상"
+        'btn_youtube': "📺 유튜브 영상",
+        'season_spring': "🌸 봄 (3-5월)",
+        'season_summer': "🌊 여름 (6-8월)",
+        'season_autumn': "🍁 가을 (9-11월)",
+        'season_winter': "❄️ 겨울 (12-2월)",
+        'season_msg': "계절을 선택하면 인기 축제를 추천해 드립니다."
     },
     'EN': {
         'title': "🇰🇷 Korea Local Festival Guide",
@@ -52,6 +58,7 @@ UI_TEXT = {
         'kpi_foreigner': "Foreign Visitors",
         'tab1': "📊 Map & Charts",
         'tab2': "📋 Detailed List (Card View)",
+        'tab3': "🌸 Seasonal Picks",
         'chart_map': "🗺️ Festival Map Location",
         'chart_treemap': "Distribution by Region & Type",
         'chart_heatmap': "📅 Best Season to Visit (Heatmap)",
@@ -59,7 +66,12 @@ UI_TEXT = {
         'list_header': "Detailed Search Results",
         'col_name': "Name", 'col_loc': "Region", 'col_type': "Category", 'col_date': "Month", 'col_for': "Foreigners",
         'btn_google': "🔍 Google Info",
-        'btn_youtube': "📺 YouTube Video"
+        'btn_youtube': "📺 YouTube Video",
+        'season_spring': "🌸 Spring (Mar-May)",
+        'season_summer': "🌊 Summer (Jun-Aug)",
+        'season_autumn': "🍁 Autumn (Sep-Nov)",
+        'season_winter': "❄️ Winter (Dec-Feb)",
+        'season_msg': "Select a season to get recommendations."
     }
 }
 
@@ -198,7 +210,8 @@ c3.metric(txt['kpi_foreigner'], f"{int(filtered_df['foreigner_clean'].sum()):,}"
 
 st.divider()
 
-tab1, tab2 = st.tabs([txt['tab1'], txt['tab2']])
+# 탭을 3개로 확장
+tab1, tab2, tab3 = st.tabs([txt['tab1'], txt['tab2'], txt['tab3']])
 
 # --- TAB 1: 차트 (지도 및 분석) ---
 with tab1:
@@ -267,10 +280,6 @@ with tab2:
         
         st.markdown("---")
         
-        # [NEW] 화려한 카드 뷰 스타일 (데이터프레임 대신 사용)
-        # 너무 많은 데이터를 렌더링하면 느려질 수 있으므로 최대 50개까지만 카드 형태로 보여주고
-        # 그 이상은 필터링을 유도하는 메시지 출력 (또는 그대로 둠)
-        
         LIMIT_VIEW = 50
         count = 0
         
@@ -281,16 +290,13 @@ with tab2:
                 
             # 카드 디자인 (컨테이너 + 테두리)
             with st.container(border=True):
-                # 1. 헤더 (축제 이름 및 지역 배지)
                 col_head1, col_head2 = st.columns([4, 1])
                 with col_head1:
                     st.markdown(f"### 🎪 {row[name_col]}")
                     st.caption(f"📍 {row[region_col]}  |  📅 {row['startmonth']}월  |  🏷️ {row[type_col]}")
                 with col_head2:
-                    # 외국인 방문객 강조 배지
                     st.metric(txt['col_for'], f"{row['foreigner_clean']:,.0f}")
                 
-                # 2. 내용 (버튼 링크)
                 col_link1, col_link2, col_empty = st.columns([1, 1, 3])
                 with col_link1:
                     st.link_button(txt['btn_google'], row['google_url'], use_container_width=True)
@@ -301,3 +307,75 @@ with tab2:
             
     else:
         st.warning("No festivals found.")
+
+# --- TAB 3: 계절별 추천 (New) ---
+with tab3:
+    st.info(txt['season_msg'])
+    
+    # 1. 계절 선택
+    season_opts = {
+        'Spring': txt['season_spring'],
+        'Summer': txt['season_summer'],
+        'Autumn': txt['season_autumn'],
+        'Winter': txt['season_winter']
+    }
+    
+    selected_season_key = st.radio(
+        "Select Season", 
+        list(season_opts.keys()), 
+        format_func=lambda x: season_opts[x],
+        horizontal=True,
+        label_visibility="collapsed"
+    )
+    
+    # 2. 계절에 따른 월 필터링
+    if selected_season_key == 'Spring':
+        target_months = [3, 4, 5]
+    elif selected_season_key == 'Summer':
+        target_months = [6, 7, 8]
+    elif selected_season_key == 'Autumn':
+        target_months = [9, 10, 11]
+    else: # Winter
+        target_months = [12, 1, 2]
+    
+    # 3. 데이터 필터링 (사이드바의 월 필터 무시, 지역/유형 필터는 유지)
+    season_df = df[
+        (df['startmonth'].isin(target_months)) &
+        (df[region_col].isin(sel_regions)) &
+        (df[type_col].isin(sel_types))
+    ]
+    
+    # 4. 결과 표시
+    if not season_df.empty:
+        # Top 3 추천 (외국인 방문객 순)
+        top_picks = season_df.nlargest(3, 'foreigner_clean')
+        
+        st.markdown(f"### ⭐ {season_opts[selected_season_key]} Top Picks")
+        
+        cols = st.columns(3)
+        for i, (idx, row) in enumerate(top_picks.iterrows()):
+            with cols[i % 3]:
+                with st.container(border=True):
+                    st.markdown(f"#### 🏆 {row[name_col]}")
+                    st.caption(f"📍 {row[region_col]}")
+                    st.metric("Visitors", f"{row['visitors_clean']:,.0f}")
+                    st.link_button("More Info", row['google_url'], use_container_width=True)
+        
+        st.divider()
+        st.markdown("### 📋 All Festivals in this Season")
+        
+        # 전체 리스트 (간소화)
+        season_display = season_df[[name_col, region_col, 'startmonth', 'visitors_clean', 'google_url']].copy()
+        season_display.columns = [txt['col_name'], txt['col_loc'], txt['col_date'], txt['kpi_visitors'], "Link"]
+        
+        st.dataframe(
+            season_display,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "Link": st.column_config.LinkColumn(display_text="🔍"),
+                txt['kpi_visitors']: st.column_config.NumberColumn(format="%d")
+            }
+        )
+    else:
+        st.warning("No festivals found for this season with current filters.")
