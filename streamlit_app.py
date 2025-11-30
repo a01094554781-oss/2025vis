@@ -32,7 +32,7 @@ UI_TEXT = {
         'tab3': "🌸 계절별 추천",
         'chart_map': "🗺️ 축제 위치 지도 (지역별 분포)",
         'chart_treemap': "지역별 & 유형별 분포",
-        'chart_radar': "🕸️ 월별 축제 활동성 (Radar Chart)", # [변경]
+        'chart_sunburst': "🎯 유형별 지역 분포 (Sunburst Chart)", # [변경]
         'chart_top10': "🏆 외국인 방문객 Top 10",
         'list_header': "검색 결과 상세 리스트",
         'col_name': "축제명", 'col_loc': "지역", 'col_type': "유형", 'col_date': "월", 'col_for': "외국인수",
@@ -61,7 +61,7 @@ UI_TEXT = {
         'tab3': "🌸 Seasonal Picks",
         'chart_map': "🗺️ Festival Map Location",
         'chart_treemap': "Distribution by Region & Type",
-        'chart_radar': "🕸️ Monthly Activity Radar", # [변경]
+        'chart_sunburst': "🎯 Distribution by Type & Region (Sunburst)", # [변경]
         'chart_top10': "🏆 Top 10 Popular for Foreigners",
         'list_header': "Detailed Search Results",
         'col_name': "Name", 'col_loc': "Region", 'col_type': "Category", 'col_date': "Month", 'col_for': "Foreigners",
@@ -254,46 +254,26 @@ with tab1:
             fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False)
             st.plotly_chart(fig_bar, use_container_width=True)
 
-    # [변경] 레이더 차트 (Spider Plot) 추가
+    # [변경] 썬버스트 차트 (Sunburst Chart) 추가
     st.markdown("---")
-    st.subheader(txt['chart_radar'])
+    st.subheader(txt['chart_sunburst'])
     if not filtered_df.empty:
-        # 1. 월별 데이터 집계 (빈 월은 0으로 채움)
-        month_counts = filtered_df['startmonth'].value_counts().reindex(range(1, 13), fill_value=0).sort_index()
-        
-        # 2. 데이터프레임 변환
-        radar_df = pd.DataFrame({
-            'month': month_counts.index,
-            'counts': month_counts.values
-        })
-        
-        # 3. 월 이름 변환
-        if lang_code == 'EN':
-            month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-        else:
-            month_names = [f"{i}월" for i in range(1, 13)]
-            
-        radar_df['month_name'] = month_names
-        
-        # 4. 차트 그리기
-        fig_radar = px.line_polar(
-            radar_df, 
-            r='counts', 
-            theta='month_name', 
-            line_close=True, # 선을 닫아서 도형 만들기
-            markers=True,
-            title=""
+        # Sunburst Chart (계층 구조 시각화)
+        # 안쪽 원: 축제 유형 -> 바깥쪽 원: 지역
+        # 유형을 먼저 선택하고 그 안에 어떤 지역들이 있는지 보는 구조
+        fig_sun = px.sunburst(
+            filtered_df,
+            path=[type_col, region_col],
+            values='visitors_clean',
+            color=type_col, # 유형별 색상 구분
+            color_discrete_sequence=px.colors.qualitative.Pastel
         )
-        fig_radar.update_traces(fill='toself') # 내부 채우기
         
-        # 레이아웃 설정
-        fig_radar.update_layout(
-            polar=dict(
-                radialaxis=dict(visible=True, range=[0, radar_df['counts'].max() * 1.2]) # 축 범위 설정
-            ),
-            showlegend=False
-        )
-        st.plotly_chart(fig_radar, use_container_width=True)
+        # 레이아웃 조정
+        fig_sun.update_layout(margin=dict(t=10, l=10, r=10, b=10))
+        st.plotly_chart(fig_sun, use_container_width=True)
+        
+        st.caption("💡 Tip: 차트의 안쪽(유형)을 클릭하면 해당 유형의 지역별 분포를 자세히 볼 수 있습니다.")
 
 # --- TAB 2: 상세 리스트 (카드 뷰 스타일로 업그레이드) ---
 with tab2:
