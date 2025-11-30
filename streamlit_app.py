@@ -251,7 +251,7 @@ else:
     m3.metric(txt['kpi_visitor'], "-")
 
 # ---------------------------------------------------------
-# [Main Visual] 지도 (확대/축소 최적화)
+# [Main Visual] 지도 (확대/축소 최적화, 색상 옵션 제거)
 # ---------------------------------------------------------
 st.markdown("### 🗺️ Festival Map")
 if not filtered_df.empty:
@@ -264,8 +264,7 @@ if not filtered_df.empty:
         hover_data={r_col:True, "visitors":True, "lat":False, "lon":False, "size_scale":False},
         zoom=6, # 기본 줌 레벨
         height=550,
-        mapbox_style="carto-positron",
-        color_discrete_sequence=px.colors.qualitative.Bold 
+        mapbox_style="carto-positron"
     )
     # 줌 컨트롤 활성화
     fig_map.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
@@ -318,8 +317,7 @@ with tab1:
         
         with col_chart:
             fig_bar = px.bar(rank_df, x='visitors', y='name', orientation='h', 
-                             color='visitors', text='visitors', 
-                             color_continuous_scale='Viridis') 
+                             color='visitors', text='visitors')
             fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, height=400)
             st.plotly_chart(fig_bar, use_container_width=True)
             
@@ -380,4 +378,4 @@ with tab3:
         if lang == 'en':
             st.markdown("- Try **'Seoul'** or **'Busan'**.\n- Try **'Food'** or **'Music'**.\n- AI searches strictly in **2025 Data**.")
         else:
-            st.markdown("- **'서울'**이나 **'부산'** 입력.\n- **'음식'**이나 **'음악'** 입력.\n- AI는 **2025 데이터** 내에서만 찾습니다.")
+            st.markdown("- **'서울'**이나 **'부산'** 입력.\n- **'음식'**이나 **'음악'** 입력.\n- AI는 **2025 데이터**만 검색합니다.")
