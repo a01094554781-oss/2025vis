@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import numpy as np
 import os
+import random
 
 # ---------------------------------------------------------
 # 1. 페이지 설정
@@ -16,13 +16,14 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
-# 2. 데이터 로드 및 전처리
+# 2. 데이터 로드 (지능형 컬럼 찾기 적용)
 # ---------------------------------------------------------
 @st.cache_data
 def load_data():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(current_dir, 'festival.CSV')
 
+    # 1. 파일 읽기
     try:
         df = pd.read_csv(file_path, encoding='cp949')
     except:
@@ -31,31 +32,39 @@ def load_data():
         except:
             return pd.DataFrame()
 
-    # 컬럼명 소문자 변환 및 공백 제거
+    # 2. 컬럼명 소문자 변환 및 공백 제거 (1차 정제)
     df.columns = df.columns.str.replace(' ', '').str.strip().str.lower()
 
-    # 컬럼 매핑 (User csv 헤더 기준)
-    rename_map = {
-        'state': 'region', 'festivalname': 'name', 'festivaltype': 'category',
-        'startmonth': 'month', 'foreigner': 'visitors', 'venue': 'place'
-    }
+    # 3. [핵심 수정] 지능형 컬럼 매핑
+    # 엑셀 헤더가 정확하지 않아도 키워드로 찾아서 연결합니다.
+    rename_map = {}
+    for col in df.columns:
+        if 'name' in col and 'festival' in col: rename_map[col] = 'name'       # festivalname -> name
+        elif 'type' in col: rename_map[col] = 'category'                       # festivaltype -> category
+        elif 'foreign' in col or 'visit' in col: rename_map[col] = 'visitors'  # foreigner -> visitors
+        elif 'state' in col or 'region' in col: rename_map[col] = 'region'     # state -> region
+        elif 'venue' in col or 'place' in col: rename_map[col] = 'place'       # venue -> place
+        elif 'month' in col: rename_map[col] = 'month'                         # startmonth -> month
+    
     df = df.rename(columns=rename_map)
 
-    # 데이터 타입 변환
-    if 'visitors' in df.columns:
-        df['visitors'] = df['visitors'].astype(str).str.replace(',', '').str.replace('미집계', '0').str.replace('최초행사', '0')
-        df['visitors'] = pd.to_numeric(df['visitors'], errors='coerce').fillna(0).astype(int)
-    else:
-        df['visitors'] = 0
-        
-    if 'month' in df.columns:
-        df['month'] = pd.to_numeric(df['month'], errors='coerce').fillna(0).astype(int)
-    else:
-        df['month'] = 0
+    # 4. 필수 컬럼이 없으면 에러 방지를 위해 기본값 생성
+    if 'name' not in df.columns: df['name'] = 'Unknown Festival'
+    if 'visitors' not in df.columns: df['visitors'] = 0
+    if 'category' not in df.columns: df['category'] = 'General'
+    if 'region' not in df.columns: df['region'] = 'Korea'
+    if 'place' not in df.columns: df['place'] = 'TBD'
+    if 'month' not in df.columns: df['month'] = 0
+
+    # 5. 데이터 타입 강제 변환 (방문객 수 쉼표 제거)
+    df['visitors'] = df['visitors'].astype(str).str.replace(',', '').str.replace('미집계', '0').str.replace('최초행사', '0')
+    df['visitors'] = pd.to_numeric(df['visitors'], errors='coerce').fillna(0).astype(int)
+    
+    df['month'] = pd.to_numeric(df['month'], errors='coerce').fillna(0).astype(int)
 
     return df
 
-# 좌표 및 지역명 데이터
+# 좌표 매핑 데이터
 LAT_LON_DICT = {
     '서울': [37.5665, 126.9780], '부산': [35.1796, 129.0756], '대구': [35.8714, 128.6014],
     '인천': [37.4563, 126.7052], '광주': [35.1595, 126.8526], '대전': [36.3504, 127.3845],
@@ -86,41 +95,36 @@ try:
         # 지도 점 크기 (로그 스케일)
         df['size_scale'] = np.log1p(df['visitors']) + 1
     else:
-        st.error("Data Error: CSV structure mismatch.")
+        st.error("Data Error: CSV structure mismatch. Please check your columns.")
         st.stop()
 except Exception as e:
     st.error(f"Critical Error: {e}")
     st.stop()
 
 # ---------------------------------------------------------
-# 3. 🧠 AI 가이드 로직 (엄격한 필터링 적용)
+# 3. 🧠 AI 가이드 로직
 # ---------------------------------------------------------
 def get_smart_response(user_input, dataframe, lang='en'):
     user_input = user_input.lower()
     filtered_ai = dataframe.copy()
     
-    # 1. 지역 필터링 (명시적 언급 시 해당 지역만 남김)
+    # 지역 필터링
     found_region = None
     for kor, eng in REGION_EN_DICT.items():
         if eng.lower() in user_input or kor in user_input:
-            found_region = eng
             filtered_ai = filtered_ai[filtered_ai['region_en'] == eng]
-            break # 첫 번째 발견된 지역으로 한정
+            break 
     
-    # 2. 카테고리 필터링
-    found_cat = None
+    # 카테고리 필터링
     for cat in dataframe['category'].unique():
         if str(cat).lower() in user_input:
-            found_cat = cat
             filtered_ai = filtered_ai[filtered_ai['category'] == cat]
             break
 
-    # 3. 결과 선택
+    # 결과 선택
     if not filtered_ai.empty:
-        # 방문객 수 기준 상위 3개 중 하나 랜덤 추천
         top_picks = filtered_ai.sort_values('visitors', ascending=False).head(3)
         pick = top_picks.sample(1).iloc[0]
-        
         visit_fmt = f"{pick['visitors']:,}"
         
         if lang == 'en':
@@ -132,8 +136,6 @@ def get_smart_response(user_input, dataframe, lang='en'):
             - 🗓️ **Month:** {pick['month']}
             - 🎨 **Type:** {pick['category']}
             - 👥 **Foreign Visitors:** {visit_fmt}
-            
-            *(Selected from {len(filtered_ai)} festivals matching your request)*
             """
         else:
             return f"""
@@ -144,14 +146,9 @@ def get_smart_response(user_input, dataframe, lang='en'):
             - 🗓️ **개최월:** {pick['month']}월
             - 🎨 **유형:** {pick['category']}
             - 👥 **외국인 방문객:** {visit_fmt}명
-            
-            *(질문하신 조건에 맞는 {len(filtered_ai)}개 축제 중 추천)*
             """
     else:
-        if lang == 'en':
-            return "🤔 I couldn't find any festival matching that specific location or type. Try asking for 'Seoul' or 'Busan'."
-        else:
-            return "🤔 해당 지역이나 유형에 맞는 축제를 찾지 못했어요. '서울'이나 '부산'처럼 큰 지역명으로 물어봐주세요!"
+        return "🤔 I couldn't find any festival matching that specific location or type." if lang == 'en' else "🤔 해당 조건에 맞는 축제를 찾지 못했어요."
 
 
 # ---------------------------------------------------------
@@ -224,18 +221,18 @@ if selected_region != txt['all']: filtered_df = filtered_df[filtered_df[r_col] =
 if txt['all'] not in selected_category and selected_category: filtered_df = filtered_df[filtered_df['category'].isin(selected_category)]
 
 # ---------------------------------------------------------
-# 6. 메인 대시보드 (Rich Visuals)
+# 6. 메인 대시보드
 # ---------------------------------------------------------
 st.title(txt['title'])
 st.markdown(txt['subtitle'].format(len(filtered_df)))
 st.markdown("---")
 
-# [KPI Metrics] 상단 요약 통계
+# [KPI Metrics]
 m1, m2, m3, m4 = st.columns(4)
 m1.metric(txt['kpi_total'], f"{len(filtered_df)}")
 if not filtered_df.empty:
-    top_reg = filtered_df[r_col].mode()[0] if not filtered_df.empty else "-"
-    peak_mo = filtered_df['month'].mode()[0] if not filtered_df.empty else "-"
+    top_reg = filtered_df[r_col].mode()[0]
+    peak_mo = filtered_df['month'].mode()[0]
     top_fest = filtered_df.sort_values('visitors', ascending=False).iloc[0]['name']
     m2.metric(txt['kpi_top_region'], top_reg)
     m3.metric(txt['kpi_top_month'], f"{peak_mo} Month")
@@ -245,7 +242,7 @@ else:
     m3.metric(txt['kpi_top_month'], "-")
     m4.metric(txt['kpi_visitor'], "-")
 
-# [Row 1] 지도 + 도넛 차트
+# [Row 1] 지도 + 도넛
 st.markdown("### 📊 Overview")
 row1_1, row1_2 = st.columns([3, 2])
 
@@ -273,25 +270,22 @@ with row1_2:
     else:
         st.info("No Data")
 
-# [Row 2] 월별 트렌드 (Area Chart)
+# [Row 2] 월별 트렌드
 st.markdown(f"**{txt['chart_line']}**")
 if not filtered_df.empty:
     trend_df = filtered_df.groupby('month').size().reset_index(name='counts')
-    # 모든 월 채우기 (1~12월)
     all_months = pd.DataFrame({'month': range(1, 13)})
     trend_df = pd.merge(all_months, trend_df, on='month', how='left').fillna(0)
     
-    fig_area = px.area(trend_df, x='month', y='counts', markers=True, 
-                       color_discrete_sequence=['#FF4B4B'])
+    fig_area = px.area(trend_df, x='month', y='counts', markers=True, color_discrete_sequence=['#FF4B4B'])
     fig_area.update_xaxes(dtick=1)
     fig_area.update_layout(height=300, margin={"r":0,"t":10,"l":0,"b":0})
     st.plotly_chart(fig_area, use_container_width=True)
 
-# [Tabs] 상세 분석
+# [Tabs]
 st.markdown("---")
 tab1, tab2, tab3 = st.tabs([txt['tab_rank'], txt['tab_season'], txt['tab_ai']])
 
-# Tab 1: 랭킹 (컬러풀한 바 차트)
 with tab1:
     st.subheader(txt['tab_rank'])
     if not filtered_df.empty:
@@ -304,7 +298,6 @@ with tab1:
     else:
         st.info("No Data")
 
-# Tab 2: 계절별 카드 (풍성한 디자인)
 with tab2:
     st.subheader(txt['tab_season'])
     seasons = {'Spring': [3,4,5], 'Summer': [6,7,8], 'Autumn': [9,10,11], 'Winter': [12,1,2]} if lang=='en' else {'봄': [3,4,5], '여름': [6,7,8], '가을': [9,10,11], '겨울': [12,1,2]}
@@ -320,13 +313,12 @@ with tab2:
                     st.caption(f"📍 {row[r_col]}")
                     st.progress(min(row['visitors'] / (df['visitors'].max()+1), 1.0))
 
-# Tab 3: 똑똑해진 AI
 with tab3:
     col_ai_L, col_ai_R = st.columns([2, 1])
     with col_ai_L:
         st.subheader(txt['tab_ai'])
         if "messages" not in st.session_state:
-            st.session_state.messages = [{"role": "assistant", "content": "Hello! I analyze data to find the best festival for you."}]
+            st.session_state.messages = [{"role": "assistant", "content": txt['ai_hello']}]
         
         for msg in st.session_state.messages:
             st.chat_message(msg["role"]).write(msg["content"])
@@ -334,24 +326,13 @@ with tab3:
         if prompt := st.chat_input("Ex: Seoul Food Festival"):
             st.session_state.messages.append({"role": "user", "content": prompt})
             st.chat_message("user").write(prompt)
-            
-            # 개선된 로직 호출
             ai_response = get_smart_response(prompt, df, lang)
-            
             st.session_state.messages.append({"role": "assistant", "content": ai_response})
             st.chat_message("assistant").write(ai_response)
     
     with col_ai_R:
         st.info("💡 **Tip**")
         if lang == 'en':
-            st.markdown("""
-            - Try typing **'Seoul'** or **'Busan'** to find local festivals.
-            - Type **'Food'** or **'Music'** to filter by category.
-            - The AI strictly follows the **2025 Database**.
-            """)
+            st.markdown("- Try **'Seoul'** or **'Busan'**.\n- Try **'Food'** or **'Music'**.")
         else:
-            st.markdown("""
-            - **'서울'**이나 **'부산'** 같은 지역명을 입력해보세요.
-            - **'음식'**이나 **'음악'** 같은 키워드로 찾아보세요.
-            - AI는 철저하게 **2025년 데이터** 내에서만 추천합니다.
-            """)
+            st.markdown("- **'서울'**이나 **'부산'** 입력.\n- **'음식'**이나 **'음악'** 입력.")
