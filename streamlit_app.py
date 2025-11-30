@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import numpy as np  # [추가] 좌표 계산용
 from googletrans import Translator
+import random # [추가] 랜덤 추천용
 
 # 1. 페이지 설정
 st.set_page_config(
@@ -17,6 +18,7 @@ st.set_page_config(
 UI_TEXT = {
     'KO': {
         'title': "🇰🇷 대한민국 지역 축제 가이드",
+        'subtitle': "데이터로 떠나는 한국 축제 여행",
         'sidebar_title': "🔍 축제 찾기 (필터)",
         'lang_sel': "언어 / Language",
         'month_sel': "방문 시기 (월)",
@@ -29,16 +31,20 @@ UI_TEXT = {
         'kpi_foreigner': "외국인 방문객",
         'tab1': "📊 지도 & 차트 분석",
         'tab2': "📋 상세 리스트 (Google 연동)",
-        'chart_map': "🗺️ 축제 위치 지도 (지역별 분포)",  # [추가]
+        'chart_map': "🗺️ 축제 위치 지도 (지역별 분포)",
         'chart_treemap': "지역별 & 유형별 분포",
         'chart_heatmap': "📅 월별 지역 축제 밀집도 (Heatmap)",
         'chart_top10': "🏆 외국인 방문객 Top 10",
         'list_header': "검색 결과 상세 리스트",
         'col_name': "축제명", 'col_loc': "지역", 'col_type': "유형", 'col_date': "월", 'col_for': "외국인수",
-        'col_link': "구글 검색"
+        'col_link': "구글 검색",
+        'random_btn': "🎲 어디로 갈지 모르겠다면? (랜덤 추천)",
+        'random_result': "🎉 이 축제는 어떠세요?",
+        'insight_prefix': "💡 인사이트: 현재 선택된 조건에서는 "
     },
     'EN': {
         'title': "🇰🇷 Korea Local Festival Guide",
+        'subtitle': "Explore Korean Culture through Data",
         'sidebar_title': "🔍 Find Festivals",
         'lang_sel': "Language",
         'month_sel': "Month of Visit",
@@ -51,13 +57,16 @@ UI_TEXT = {
         'kpi_foreigner': "Foreign Visitors",
         'tab1': "📊 Map & Charts",
         'tab2': "📋 Detailed List (with Google)",
-        'chart_map': "🗺️ Festival Map Location",  # [추가]
+        'chart_map': "🗺️ Festival Map Location",
         'chart_treemap': "Distribution by Region & Type",
         'chart_heatmap': "📅 Best Season to Visit (Heatmap)",
         'chart_top10': "🏆 Top 10 Popular for Foreigners",
         'list_header': "Detailed Search Results",
         'col_name': "Name", 'col_loc': "Region", 'col_type': "Category", 'col_date': "Month", 'col_for': "Foreigners",
-        'col_link': "More Info"
+        'col_link': "More Info",
+        'random_btn': "🎲 Feeling Lucky? (Random Pick)",
+        'random_result': "🎉 How about this festival?",
+        'insight_prefix': "💡 Insight: In your selection, "
     }
 }
 
@@ -178,6 +187,18 @@ with st.sidebar:
         
     search_query = st.text_input(txt['search_lbl'], placeholder=txt['search_ph'])
 
+    # [NEW] 랜덤 추천 버튼 (재미 요소)
+    st.markdown("---")
+    if st.button(txt['random_btn'], use_container_width=True):
+        # 현재 필터링된 데이터셋이 아니라 전체에서 추천 (또는 필터 내에서 추천 가능)
+        # 여기서는 다양성을 위해 전체 데이터 중 추천
+        random_pick = df.sample(1).iloc[0]
+        
+        st.success(f"**{txt['random_result']}**")
+        st.markdown(f"### 🎪 {random_pick[name_col]}")
+        st.caption(f"📍 {random_pick[region_col]} | 📅 {random_pick['startmonth']}월")
+        st.markdown(f"[Google Search]({random_pick['google_url']}) | [YouTube]({random_pick['youtube_url']})")
+
 # ---------------------------------------------------------
 # 5. 데이터 필터링
 # ---------------------------------------------------------
@@ -196,12 +217,26 @@ if search_query:
 # ---------------------------------------------------------
 # 6. 메인 대시보드
 # ---------------------------------------------------------
+# [NEW] 배너 이미지 추가 (시각적 효과)
+st.image("https://images.unsplash.com/photo-1517154421773-0529f29ea451?q=80&w=2070&auto=format&fit=crop", 
+         use_container_width=True, caption="Experience the beauty of Korea")
+
 st.title(txt['title'])
+st.caption(txt['subtitle']) # [NEW] 부제목 추가
 
 c1, c2, c3 = st.columns(3)
 c1.metric(txt['kpi_total'], f"{len(filtered_df)}")
 c2.metric(txt['kpi_visitors'], f"{int(filtered_df['visitors_clean'].sum()):,}")
 c3.metric(txt['kpi_foreigner'], f"{int(filtered_df['foreigner_clean'].sum()):,}")
+
+# [NEW] 동적 인사이트 (Data Storytelling)
+if not filtered_df.empty:
+    top_region = filtered_df[region_col].mode()[0]
+    top_type = filtered_df[type_col].mode()[0]
+    insight_msg = f"**{top_region}**" if lang_code == 'EN' else f"**{top_region}**"
+    insight_msg2 = f"most common type is **{top_type}**" if lang_code == 'EN' else f"**{top_type}** 테마가 가장 많습니다."
+    
+    st.info(f"{txt['insight_prefix']} {insight_msg} area is the hotspot! The {insight_msg2}")
 
 st.divider()
 
