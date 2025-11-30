@@ -254,3 +254,27 @@ with tab4:
         ai_response = get_smart_response(prompt, df, lang)
         st.session_state.messages.append({"role": "assistant", "content": ai_response})
         st.chat_message("assistant").write(ai_response)
+
+# 데이터 로드 함수(load_data) 마지막 부분에 추가
+# 축제명을 이용해 구글 검색 URL 생성 (영어 모드면 영어 검색, 한국어면 한국어 검색)
+df['search_url'] = "https://www.google.com/search?q=" + df['name'].astype(str)
+
+# st.dataframe 보여주는 부분 (Tab 2)에서 column_config 수정
+st.dataframe(
+    list_df,
+    column_config={
+        # ... 기존 설정 ...
+        "search_url": st.column_config.LinkColumn(
+            "More Info", display_text="🔍 Google"
+        )
+    }
+)
+
+with st.sidebar:
+    st.markdown("---")
+    st.subheader("🎲 Random Pick")
+    if st.button("Pick for me! / 추천해줘!"):
+        # 전체 데이터 중 랜덤으로 하나 뽑기
+        random_festival = df.sample(1).iloc[0]
+        st.success(f"🎉 **{random_festival['name']}**")
+        st.write(f"📍 {random_festival['region_en']}")
