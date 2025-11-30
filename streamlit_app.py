@@ -32,7 +32,7 @@ UI_TEXT = {
         'tab3': "🌸 계절별 추천",
         'chart_map': "🗺️ 축제 위치 지도 (지역별 분포)",
         'chart_treemap': "지역별 & 유형별 분포",
-        'chart_heatmap': "📅 월별 지역 축제 밀집도 (Heatmap)",
+        'chart_city': "🏙️ 축제 개최 도시 Top 15 (Hotspots)", # [변경] 히트맵 대신 도시 랭킹
         'chart_top10': "🏆 외국인 방문객 Top 10",
         'list_header': "검색 결과 상세 리스트",
         'col_name': "축제명", 'col_loc': "지역", 'col_type': "유형", 'col_date': "월", 'col_for': "외국인수",
@@ -61,7 +61,7 @@ UI_TEXT = {
         'tab3': "🌸 Seasonal Picks",
         'chart_map': "🗺️ Festival Map Location",
         'chart_treemap': "Distribution by Region & Type",
-        'chart_heatmap': "📅 Best Season to Visit (Heatmap)",
+        'chart_city': "🏙️ Top 15 Cities with Most Festivals", # [변경]
         'chart_top10': "🏆 Top 10 Popular for Foreigners",
         'list_header': "Detailed Search Results",
         'col_name': "Name", 'col_loc': "Region", 'col_type': "Category", 'col_date': "Month", 'col_for': "Foreigners",
@@ -254,17 +254,26 @@ with tab1:
             fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False)
             st.plotly_chart(fig_bar, use_container_width=True)
 
+    # [수정] 히트맵 대신 도시별 랭킹 차트 추가
     st.markdown("---")
-    st.subheader(txt['chart_heatmap'])
+    st.subheader(txt['chart_city'])
     if not filtered_df.empty:
-        heatmap_data = filtered_df.groupby([region_col, 'startmonth']).size().reset_index(name='counts')
-        fig_heat = px.density_heatmap(
-            heatmap_data, x='startmonth', y=region_col, z='counts', 
-            nbinsx=12, text_auto=True, color_continuous_scale='Reds',
-            labels={'startmonth': 'Month', region_col: 'Region', 'counts': 'Festivals'}
+        # 지역(Region) 및 도시(City) 별 축제 수 집계
+        city_counts = filtered_df.groupby([region_col, 'city']).size().reset_index(name='counts')
+        # 상위 15개 도시 선정
+        top_cities = city_counts.nlargest(15, 'counts')
+        
+        fig_city = px.bar(
+            top_cities, 
+            x='counts', 
+            y='city', 
+            orientation='h', # 가로 막대 그래프
+            text_auto=True,
+            color=region_col, # 지역별 색상 구분
+            labels={'counts': 'Number of Festivals', 'city': 'City'}
         )
-        fig_heat.update_layout(xaxis=dict(tickmode='linear', tick0=1, dtick=1))
-        st.plotly_chart(fig_heat, use_container_width=True)
+        fig_city.update_layout(yaxis={'categoryorder':'total ascending'}) # 막대 정렬
+        st.plotly_chart(fig_city, use_container_width=True)
 
 # --- TAB 2: 상세 리스트 (카드 뷰 스타일로 업그레이드) ---
 with tab2:
