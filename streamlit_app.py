@@ -9,13 +9,13 @@ import os
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="K-Festival Guide 2025",
-    page_icon="🎆",
+    page_icon="🎉",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # ---------------------------------------------------------
-# 2. 데이터 로드 (오류 원천 차단)
+# 2. 데이터 로드 (중복 방지 로직 적용)
 # ---------------------------------------------------------
 @st.cache_data
 def load_data():
@@ -33,30 +33,46 @@ def load_data():
     # 1. 컬럼명 소문자 변환 및 공백 제거
     df.columns = df.columns.str.replace(' ', '').str.strip().str.lower()
 
-    # 2. [중요] 컬럼명 강제 매핑 (사용자 파일 기준)
-    # 파일의 'foreigner' 컬럼을 'visitors'로 명확하게 바꿉니다.
-    rename_map = {
-        'state': 'region',
-        'festivalname': 'name',
-        'festivaltype': 'category',
-        'startmonth': 'month',
-        'foreigner': 'visitors',  # 여기서 visitors 정의
-        'venue': 'place'
-    }
+    # 2. [핵심 수정] 컬럼 중복 방지 매핑
+    # 'visit'이 들어간다고 다 바꾸지 않고, 'foreign'이 들어간 것만 'visitors'로 바꿉니다.
+    rename_map = {}
+    
+    # 우선순위가 높은 컬럼부터 찾기
+    for col in df.columns:
+        if 'foreign' in col:  # 'foreigner' -> visitors (외국인)
+            rename_map[col] = 'visitors'
+        elif 'festivalname' in col or ('name' in col and 'festival' in col): 
+            rename_map[col] = 'name'
+        elif 'festivaltype' in col or ('type' in col and 'festival' in col): 
+            rename_map[col] = 'category'
+        elif 'state' in col or 'region' in col: 
+            rename_map[col] = 'region'
+        elif 'venue' in col: 
+            rename_map[col] = 'place'
+        elif 'startmonth' in col: 
+            rename_map[col] = 'month'
+
+    # 3. 이름 변경 적용
     df = df.rename(columns=rename_map)
 
-    # 3. 필수 컬럼이 없으면 생성 (에러 방지)
-    required_cols = ['name', 'category', 'region', 'month', 'visitors', 'place']
-    for col in required_cols:
-        if col not in df.columns:
-            df[col] = 0 if col in ['month', 'visitors'] else 'Unknown'
+    # 4. 필수 컬럼 확인 및 기본값 생성
+    if 'name' not in df.columns: df['name'] = 'Unknown Festival'
+    
+    # visitors 컬럼이 없으면 생성 (혹시 foreign 컬럼을 못 찾았을 경우 대비)
+    if 'visitors' not in df.columns: 
+        df['visitors'] = 0
+    
+    if 'category' not in df.columns: df['category'] = 'Culture'
+    if 'region' not in df.columns: df['region'] = 'Korea'
+    if 'place' not in df.columns: df['place'] = 'TBD'
+    if 'month' not in df.columns: df['month'] = 0
 
-    # 4. 데이터 타입 변환
-    # 방문객 수 (쉼표 제거 후 숫자 변환)
+    # 5. 데이터 타입 정리
+    # 방문객 수 (문자열 -> 숫자)
     df['visitors'] = df['visitors'].astype(str).str.replace(',', '').str.replace('미집계', '0').str.replace('최초행사', '0')
     df['visitors'] = pd.to_numeric(df['visitors'], errors='coerce').fillna(0).astype(int)
     
-    # 월 (숫자 변환)
+    # 월 (문자열 -> 숫자)
     df['month'] = pd.to_numeric(df['month'], errors='coerce').fillna(0).astype(int)
 
     return df
@@ -79,7 +95,6 @@ REGION_EN_DICT = {
     '제주': 'Jeju'
 }
 
-# 데이터 로딩 실행
 try:
     df = load_data()
     if not df.empty and 'region' in df.columns:
@@ -90,8 +105,8 @@ try:
         df['lon'] = df['lon_base'] + np.random.normal(0, 0.04, len(df))
         df['region_en'] = df['region_short'].map(REGION_EN_DICT).fillna(df['region'])
         
-        # 지도 점 크기 (로그 스케일) - 방문객이 0이어도 기본 크기는 갖도록
-        df['size_scale'] = np.log1p(df['visitors']) + 3 
+        # 지도 점 크기 (로그 스케일)
+        df['size_scale'] = np.log1p(df['visitors']) + 1
     else:
         st.error("Data Error: CSV structure mismatch. Please check your columns.")
         st.stop()
@@ -126,27 +141,47 @@ def get_smart_response(user_input, dataframe, lang='en'):
         visit_fmt = f"{pick['visitors']:,}"
         
         if lang == 'en':
-            return f"🤖 **I found it!**\n\n🎉 **{pick['name']}**\n- 📍 {pick['region_en']} ({pick['place']})\n- 🗓️ Month: {pick['month']}\n- 🎨 Type: {pick['category']}\n- 👥 Foreigners: {visit_fmt}"
+            return f"""
+            🤖 **I found the best match!**
+            
+            🎉 **{pick['name']}**
+            - 📍 **Location:** {pick['region_en']} ({pick['place']})
+            - 🗓️ **Month:** {pick['month']}
+            - 🎨 **Type:** {pick['category']}
+            - 👥 **Foreign Visitors:** {visit_fmt}
+            """
         else:
-            return f"🤖 **찾았습니다!**\n\n🎉 **{pick['name']}**\n- 📍 {pick['region']} ({pick['place']})\n- 🗓️ 개최월: {pick['month']}월\n- 🎨 유형: {pick['category']}\n- 👥 외국인: {visit_fmt}명"
+            return f"""
+            🤖 **딱 맞는 축제를 찾았습니다!**
+            
+            🎉 **{pick['name']}**
+            - 📍 **위치:** {pick['region']} ({pick['place']})
+            - 🗓️ **개최월:** {pick['month']}월
+            - 🎨 **유형:** {pick['category']}
+            - 👥 **외국인 방문객:** {visit_fmt}명
+            """
     else:
-        return "🤔 No matching festivals found." if lang == 'en' else "🤔 조건에 맞는 축제를 찾지 못했어요."
+        return "🤔 I couldn't find any festival matching that specific location or type." if lang == 'en' else "🤔 해당 조건에 맞는 축제를 찾지 못했어요."
+
 
 # ---------------------------------------------------------
 # 4. UI 텍스트 사전
 # ---------------------------------------------------------
 UI_TEXT = {
     'ko': {
-        'title': "🇰🇷 2025 한국 지역축제 가이드",
+        'title': "🇰🇷 2025 한국 지역축제 대시보드",
         'subtitle': "데이터로 만나는 **{}**개의 한국 축제",
-        'sidebar_title': "🔍 축제 찾기",
-        'filter_month': "개최 월 (기간)",
-        'filter_region': "지역 선택 (다중 선택 가능)",
-        'filter_cat': "관심사 (축제 유형)",
-        'kpi_total': "검색된 축제",
+        'sidebar_title': "🔍 필터 설정",
+        'filter_month': "월 선택",
+        'filter_region': "지역 선택",
+        'filter_cat': "유형 선택",
+        'kpi_total': "전체 축제",
         'kpi_top_region': "최다 개최지",
-        'kpi_visitor': "인기 1위 (외국인)",
-        'tab_list': "📋 축제 리스트 상세",
+        'kpi_top_month': "축제의 달",
+        'kpi_visitor': "인기 1위(외국인)",
+        'chart_map': "🗺️ 축제 지도",
+        'chart_pie': "축제 유형 비율",
+        'chart_line': "월별 축제 개최 추이",
         'tab_rank': "🏆 인기 랭킹",
         'tab_season': "🌸 계절별 추천",
         'tab_ai': "🤖 AI 가이드",
@@ -154,16 +189,19 @@ UI_TEXT = {
         'all': '전체'
     },
     'en': {
-        'title': "🇰🇷 K-Festival Guide 2025",
-        'subtitle': "Explore **{}** Festivals in Korea",
-        'sidebar_title': "🔍 Filter Festivals",
-        'filter_month': "Select Period (Month)",
-        'filter_region': "Select Regions",
-        'filter_cat': "Select Interests",
-        'kpi_total': "Festivals Found",
+        'title': "🇰🇷 K-Festival Analytics 2025",
+        'subtitle': "Explore **{}** Festivals with Data",
+        'sidebar_title': "🔍 Filter Settings",
+        'filter_month': "Select Month",
+        'filter_region': "Select Region",
+        'filter_cat': "Select Category",
+        'kpi_total': "Total Festivals",
         'kpi_top_region': "Top Region",
+        'kpi_top_month': "Peak Month",
         'kpi_visitor': "Most Popular",
-        'tab_list': "📋 Festival List",
+        'chart_map': "🗺️ Festival Map",
+        'chart_pie': "Category Distribution",
+        'chart_line': "Monthly Trend",
         'tab_rank': "🏆 Rankings",
         'tab_season': "🌸 Seasonal",
         'tab_ai': "🤖 AI Guide",
@@ -182,22 +220,16 @@ txt = UI_TEXT[lang]
 st.sidebar.markdown("---")
 st.sidebar.header(txt['sidebar_title'])
 
-# 필터 개선: 월(Range Slider), 지역(Multiselect), 카테고리(Multiselect)
 selected_month = st.sidebar.slider(txt['filter_month'], 1, 12, (1, 12))
-
 r_col = 'region_en' if lang == 'en' else 'region'
-regions = sorted(list(df[r_col].unique()))
-selected_regions = st.sidebar.multiselect(txt['filter_region'], regions, default=[])
+regions = [txt['all']] + sorted(list(df[r_col].unique()))
+selected_region = st.sidebar.selectbox(txt['filter_region'], regions)
+categories = [txt['all']] + list(df['category'].unique())
+selected_category = st.sidebar.multiselect(txt['filter_cat'], categories, default=txt['all'])
 
-categories = sorted(list(df['category'].unique()))
-selected_categories = st.sidebar.multiselect(txt['filter_cat'], categories, default=[])
-
-# 데이터 필터링
 filtered_df = df[(df['month'] >= selected_month[0]) & (df['month'] <= selected_month[1])]
-if selected_regions:
-    filtered_df = filtered_df[filtered_df[r_col].isin(selected_regions)]
-if selected_categories:
-    filtered_df = filtered_df[filtered_df['category'].isin(selected_categories)]
+if selected_region != txt['all']: filtered_df = filtered_df[filtered_df[r_col] == selected_region]
+if txt['all'] not in selected_category and selected_category: filtered_df = filtered_df[filtered_df['category'].isin(selected_category)]
 
 # ---------------------------------------------------------
 # 6. 메인 대시보드
@@ -206,91 +238,74 @@ st.title(txt['title'])
 st.markdown(txt['subtitle'].format(len(filtered_df)))
 st.markdown("---")
 
-# [KPI Metrics]
-m1, m2, m3 = st.columns(3)
+m1, m2, m3, m4 = st.columns(4)
 m1.metric(txt['kpi_total'], f"{len(filtered_df)}")
 if not filtered_df.empty:
     top_reg = filtered_df[r_col].mode()[0]
+    peak_mo = filtered_df['month'].mode()[0]
     top_fest = filtered_df.sort_values('visitors', ascending=False).iloc[0]['name']
     m2.metric(txt['kpi_top_region'], top_reg)
-    m3.metric(txt['kpi_visitor'], top_fest[:10]+"..")
+    m3.metric(txt['kpi_top_month'], f"{peak_mo} Month")
+    m4.metric(txt['kpi_visitor'], top_fest[:10]+"..")
 else:
     m2.metric(txt['kpi_top_region'], "-")
-    m3.metric(txt['kpi_visitor'], "-")
+    m3.metric(txt['kpi_top_month'], "-")
+    m4.metric(txt['kpi_visitor'], "-")
 
-# ---------------------------------------------------------
-# [Main Visual] 화려한 지도 (Plotly Mapbox)
-# ---------------------------------------------------------
-st.markdown("### 🗺️ Festival Map")
-if not filtered_df.empty:
-    # 지도 색상 팔레트 설정
-    fig_map = px.scatter_mapbox(
-        filtered_df, 
-        lat="lat", 
-        lon="lon", 
-        color="category",  # 카테고리별 다른 색상
-        size="size_scale", # 방문객 수에 따라 크기 조절
-        hover_name="name", 
-        hover_data={r_col:True, "visitors":True, "lat":False, "lon":False, "size_scale":False},
-        zoom=6, 
-        height=500,
-        mapbox_style="carto-positron", # 깔끔하고 밝은 지도 스타일
-        color_discrete_sequence=px.colors.qualitative.Bold # 화려한 색감
-    )
-    fig_map.update_layout(margin={"r":0,"t":0,"l":0,"b":0}, legend=dict(orientation="h", y=-0.1))
-    st.plotly_chart(fig_map, use_container_width=True)
-else:
-    st.warning("No Data found. Please adjust filters.")
+st.markdown("### 📊 Overview")
+row1_1, row1_2 = st.columns([3, 2])
 
-# ---------------------------------------------------------
-# [List View] 리스트를 지도 밑으로 이동
-# ---------------------------------------------------------
-with st.expander(txt['tab_list'], expanded=True):
+with row1_1:
+    st.markdown(f"**{txt['chart_map']}**")
     if not filtered_df.empty:
-        # 보여줄 컬럼 선택
-        list_df = filtered_df[['name', 'category', r_col, 'place', 'month', 'visitors']].sort_values('visitors', ascending=False)
-        
-        st.dataframe(
-            list_df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "name": st.column_config.TextColumn(txt['col_name'], width="medium"),
-                "category": st.column_config.TextColumn(txt['col_cat'], width="small"),
-                r_col: st.column_config.TextColumn(txt['col_reg'], width="small"),
-                "place": "Location",
-                "month": "Month",
-                "visitors": st.column_config.ProgressColumn(
-                    txt['col_vis'],
-                    format="%d",
-                    min_value=0,
-                    max_value=int(df['visitors'].max()),
-                ),
-            }
+        fig_map = px.scatter_mapbox(
+            filtered_df, lat="lat", lon="lon", color="category", size="size_scale",
+            hover_name="name", hover_data={r_col:True, "visitors":True, "lat":False, "lon":False, "size_scale":False},
+            zoom=6, height=450, mapbox_style="carto-positron"
         )
+        fig_map.update_layout(margin={"r":0,"t":0,"l":0,"b":0}, legend=dict(orientation="h", y=-0.1))
+        st.plotly_chart(fig_map, use_container_width=True)
+    else:
+        st.warning("No Data")
+
+with row1_2:
+    st.markdown(f"**{txt['chart_pie']}**")
+    if not filtered_df.empty:
+        pie_df = filtered_df['category'].value_counts().reset_index()
+        pie_df.columns = ['category', 'count']
+        fig_pie = px.donut(pie_df, values='count', names='category', hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
+        fig_pie.update_layout(margin={"r":0,"t":20,"l":0,"b":0}, showlegend=True)
+        st.plotly_chart(fig_pie, use_container_width=True)
     else:
         st.info("No Data")
 
-# ---------------------------------------------------------
-# [Tabs] 상세 분석 & AI
-# ---------------------------------------------------------
+st.markdown(f"**{txt['chart_line']}**")
+if not filtered_df.empty:
+    trend_df = filtered_df.groupby('month').size().reset_index(name='counts')
+    all_months = pd.DataFrame({'month': range(1, 13)})
+    trend_df = pd.merge(all_months, trend_df, on='month', how='left').fillna(0)
+    
+    fig_area = px.area(trend_df, x='month', y='counts', markers=True, color_discrete_sequence=['#FF4B4B'])
+    fig_area.update_xaxes(dtick=1)
+    fig_area.update_layout(height=300, margin={"r":0,"t":10,"l":0,"b":0})
+    st.plotly_chart(fig_area, use_container_width=True)
+
 st.markdown("---")
 tab1, tab2, tab3 = st.tabs([txt['tab_rank'], txt['tab_season'], txt['tab_ai']])
 
-# Tab 1: 랭킹
 with tab1:
     st.subheader(txt['tab_rank'])
     if not filtered_df.empty:
         rank_df = filtered_df[filtered_df['visitors'] > 0].sort_values('visitors', ascending=False).head(10)
+        # 여기서 x, y 컬럼명을 명시적으로 지정하여 중복 오류 방지
         fig_bar = px.bar(rank_df, x='visitors', y='name', orientation='h', 
                          color='visitors', text='visitors', 
-                         color_continuous_scale='Viridis') # 세련된 색감
+                         color_continuous_scale='Bluered')
         fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, height=500)
         st.plotly_chart(fig_bar, use_container_width=True)
     else:
         st.info("No Data")
 
-# Tab 2: 계절별 카드
 with tab2:
     st.subheader(txt['tab_season'])
     seasons = {'Spring': [3,4,5], 'Summer': [6,7,8], 'Autumn': [9,10,11], 'Winter': [12,1,2]} if lang=='en' else {'봄': [3,4,5], '여름': [6,7,8], '가을': [9,10,11], '겨울': [12,1,2]}
@@ -304,9 +319,8 @@ with tab2:
                 with st.container(border=True):
                     st.markdown(f"**{row['name']}**")
                     st.caption(f"📍 {row[r_col]}")
-                    st.write(f"👥 {row['visitors']:,}")
+                    st.progress(min(row['visitors'] / (df['visitors'].max()+1), 1.0))
 
-# Tab 3: AI 가이드
 with tab3:
     col_ai_L, col_ai_R = st.columns([2, 1])
     with col_ai_L:
