@@ -3,27 +3,25 @@ import pandas as pd
 import plotly.express as px
 import numpy as np
 import os
-import random
 
 # ---------------------------------------------------------
 # 1. 페이지 설정
 # ---------------------------------------------------------
 st.set_page_config(
     page_title="K-Festival Guide 2025",
-    page_icon="🎆",
+    page_icon="🎉",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # ---------------------------------------------------------
-# 2. 데이터 로드 (지능형 컬럼 찾기 적용)
+# 2. 데이터 로드 (중복 방지 로직 적용)
 # ---------------------------------------------------------
 @st.cache_data
 def load_data():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(current_dir, 'festival.CSV')
 
-    # 1. 파일 읽기
     try:
         df = pd.read_csv(file_path, encoding='cp949')
     except:
@@ -32,34 +30,49 @@ def load_data():
         except:
             return pd.DataFrame()
 
-    # 2. 컬럼명 소문자 변환 및 공백 제거 (1차 정제)
+    # 1. 컬럼명 소문자 변환 및 공백 제거
     df.columns = df.columns.str.replace(' ', '').str.strip().str.lower()
 
-    # 3. [핵심 수정] 지능형 컬럼 매핑
-    # 엑셀 헤더가 정확하지 않아도 키워드로 찾아서 연결합니다.
+    # 2. [핵심 수정] 컬럼 중복 방지 매핑
+    # 'visit'이 들어간다고 다 바꾸지 않고, 'foreign'이 들어간 것만 'visitors'로 바꿉니다.
     rename_map = {}
-    for col in df.columns:
-        if 'name' in col and 'festival' in col: rename_map[col] = 'name'       # festivalname -> name
-        elif 'type' in col: rename_map[col] = 'category'                       # festivaltype -> category
-        elif 'foreign' in col or 'visit' in col: rename_map[col] = 'visitors'  # foreigner -> visitors
-        elif 'state' in col or 'region' in col: rename_map[col] = 'region'     # state -> region
-        elif 'venue' in col or 'place' in col: rename_map[col] = 'place'       # venue -> place
-        elif 'month' in col: rename_map[col] = 'month'                         # startmonth -> month
     
+    # 우선순위가 높은 컬럼부터 찾기
+    for col in df.columns:
+        if 'foreign' in col:  # 'foreigner' -> visitors (외국인)
+            rename_map[col] = 'visitors'
+        elif 'festivalname' in col or ('name' in col and 'festival' in col): 
+            rename_map[col] = 'name'
+        elif 'festivaltype' in col or ('type' in col and 'festival' in col): 
+            rename_map[col] = 'category'
+        elif 'state' in col or 'region' in col: 
+            rename_map[col] = 'region'
+        elif 'venue' in col: 
+            rename_map[col] = 'place'
+        elif 'startmonth' in col: 
+            rename_map[col] = 'month'
+
+    # 3. 이름 변경 적용
     df = df.rename(columns=rename_map)
 
-    # 4. 필수 컬럼이 없으면 에러 방지를 위해 기본값 생성
+    # 4. 필수 컬럼 확인 및 기본값 생성
     if 'name' not in df.columns: df['name'] = 'Unknown Festival'
-    if 'visitors' not in df.columns: df['visitors'] = 0
-    if 'category' not in df.columns: df['category'] = 'General'
+    
+    # visitors 컬럼이 없으면 생성 (혹시 foreign 컬럼을 못 찾았을 경우 대비)
+    if 'visitors' not in df.columns: 
+        df['visitors'] = 0
+    
+    if 'category' not in df.columns: df['category'] = 'Culture'
     if 'region' not in df.columns: df['region'] = 'Korea'
     if 'place' not in df.columns: df['place'] = 'TBD'
     if 'month' not in df.columns: df['month'] = 0
 
-    # 5. 데이터 타입 강제 변환 (방문객 수 쉼표 제거)
+    # 5. 데이터 타입 정리
+    # 방문객 수 (문자열 -> 숫자)
     df['visitors'] = df['visitors'].astype(str).str.replace(',', '').str.replace('미집계', '0').str.replace('최초행사', '0')
     df['visitors'] = pd.to_numeric(df['visitors'], errors='coerce').fillna(0).astype(int)
     
+    # 월 (문자열 -> 숫자)
     df['month'] = pd.to_numeric(df['month'], errors='coerce').fillna(0).astype(int)
 
     return df
@@ -207,7 +220,6 @@ txt = UI_TEXT[lang]
 st.sidebar.markdown("---")
 st.sidebar.header(txt['sidebar_title'])
 
-# 필터
 selected_month = st.sidebar.slider(txt['filter_month'], 1, 12, (1, 12))
 r_col = 'region_en' if lang == 'en' else 'region'
 regions = [txt['all']] + sorted(list(df[r_col].unique()))
@@ -215,7 +227,6 @@ selected_region = st.sidebar.selectbox(txt['filter_region'], regions)
 categories = [txt['all']] + list(df['category'].unique())
 selected_category = st.sidebar.multiselect(txt['filter_cat'], categories, default=txt['all'])
 
-# 데이터 필터링
 filtered_df = df[(df['month'] >= selected_month[0]) & (df['month'] <= selected_month[1])]
 if selected_region != txt['all']: filtered_df = filtered_df[filtered_df[r_col] == selected_region]
 if txt['all'] not in selected_category and selected_category: filtered_df = filtered_df[filtered_df['category'].isin(selected_category)]
@@ -227,7 +238,6 @@ st.title(txt['title'])
 st.markdown(txt['subtitle'].format(len(filtered_df)))
 st.markdown("---")
 
-# [KPI Metrics]
 m1, m2, m3, m4 = st.columns(4)
 m1.metric(txt['kpi_total'], f"{len(filtered_df)}")
 if not filtered_df.empty:
@@ -242,7 +252,6 @@ else:
     m3.metric(txt['kpi_top_month'], "-")
     m4.metric(txt['kpi_visitor'], "-")
 
-# [Row 1] 지도 + 도넛
 st.markdown("### 📊 Overview")
 row1_1, row1_2 = st.columns([3, 2])
 
@@ -270,7 +279,6 @@ with row1_2:
     else:
         st.info("No Data")
 
-# [Row 2] 월별 트렌드
 st.markdown(f"**{txt['chart_line']}**")
 if not filtered_df.empty:
     trend_df = filtered_df.groupby('month').size().reset_index(name='counts')
@@ -282,7 +290,6 @@ if not filtered_df.empty:
     fig_area.update_layout(height=300, margin={"r":0,"t":10,"l":0,"b":0})
     st.plotly_chart(fig_area, use_container_width=True)
 
-# [Tabs]
 st.markdown("---")
 tab1, tab2, tab3 = st.tabs([txt['tab_rank'], txt['tab_season'], txt['tab_ai']])
 
@@ -290,6 +297,7 @@ with tab1:
     st.subheader(txt['tab_rank'])
     if not filtered_df.empty:
         rank_df = filtered_df[filtered_df['visitors'] > 0].sort_values('visitors', ascending=False).head(10)
+        # 여기서 x, y 컬럼명을 명시적으로 지정하여 중복 오류 방지
         fig_bar = px.bar(rank_df, x='visitors', y='name', orientation='h', 
                          color='visitors', text='visitors', 
                          color_continuous_scale='Bluered')
