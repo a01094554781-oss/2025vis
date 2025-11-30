@@ -32,7 +32,7 @@ UI_TEXT = {
         'tab3': "🌸 계절별 추천",
         'chart_map': "🗺️ 축제 위치 지도 (지역별 분포)",
         'chart_treemap': "지역별 & 유형별 분포",
-        'chart_city': "🏙️ 축제 개최 도시 Top 15 (Hotspots)", # [변경] 히트맵 대신 도시 랭킹
+        'chart_flow': "🌊 축제 데이터 흐름도 (지역 ↔ 유형 ↔ 월)", # [변경] 흐름도
         'chart_top10': "🏆 외국인 방문객 Top 10",
         'list_header': "검색 결과 상세 리스트",
         'col_name': "축제명", 'col_loc': "지역", 'col_type': "유형", 'col_date': "월", 'col_for': "외국인수",
@@ -61,7 +61,7 @@ UI_TEXT = {
         'tab3': "🌸 Seasonal Picks",
         'chart_map': "🗺️ Festival Map Location",
         'chart_treemap': "Distribution by Region & Type",
-        'chart_city': "🏙️ Top 15 Cities with Most Festivals", # [변경]
+        'chart_flow': "🌊 Festival Data Flow (Region ↔ Type ↔ Month)", # [변경]
         'chart_top10': "🏆 Top 10 Popular for Foreigners",
         'list_header': "Detailed Search Results",
         'col_name': "Name", 'col_loc': "Region", 'col_type': "Category", 'col_date': "Month", 'col_for': "Foreigners",
@@ -254,26 +254,31 @@ with tab1:
             fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False)
             st.plotly_chart(fig_bar, use_container_width=True)
 
-    # [수정] 히트맵 대신 도시별 랭킹 차트 추가
+    # [변경] 데이터 흐름도 (Parallel Categories Diagram) 추가
     st.markdown("---")
-    st.subheader(txt['chart_city'])
+    st.subheader(txt['chart_flow'])
     if not filtered_df.empty:
-        # 지역(Region) 및 도시(City) 별 축제 수 집계
-        city_counts = filtered_df.groupby([region_col, 'city']).size().reset_index(name='counts')
-        # 상위 15개 도시 선정
-        top_cities = city_counts.nlargest(15, 'counts')
+        # 데이터가 너무 많으면 복잡해지므로 방문객 상위 100개만 샘플링하거나 전체를 보여줌
+        # 여기서는 전체 흐름을 보기 위해 전체 사용 (단, 색상은 방문객 수 기준)
         
-        fig_city = px.bar(
-            top_cities, 
-            x='counts', 
-            y='city', 
-            orientation='h', # 가로 막대 그래프
-            text_auto=True,
-            color=region_col, # 지역별 색상 구분
-            labels={'counts': 'Number of Festivals', 'city': 'City'}
+        # 다국어 라벨 설정
+        lbl_region = "Region" if lang_code == 'EN' else "지역"
+        lbl_type = "Category" if lang_code == 'EN' else "유형"
+        lbl_month = "Month" if lang_code == 'EN' else "개최월"
+        
+        fig_parallel = px.parallel_categories(
+            filtered_df,
+            dimensions=[region_col, type_col, 'startmonth'],
+            color='visitors_clean', # 방문객 수에 따라 선 색상 변경
+            color_continuous_scale=px.colors.sequential.Sunsetdark,
+            labels={region_col: lbl_region, type_col: lbl_type, 'startmonth': lbl_month}
         )
-        fig_city.update_layout(yaxis={'categoryorder':'total ascending'}) # 막대 정렬
-        st.plotly_chart(fig_city, use_container_width=True)
+        
+        # 레이아웃 조정
+        fig_parallel.update_layout(margin=dict(l=20, r=20, t=20, b=20))
+        st.plotly_chart(fig_parallel, use_container_width=True)
+        
+        st.caption("💡 Tip: 그래프의 선을 따라가면 지역별 주요 축제 유형과 개최 시기의 흐름을 볼 수 있습니다.")
 
 # --- TAB 2: 상세 리스트 (카드 뷰 스타일로 업그레이드) ---
 with tab2:
