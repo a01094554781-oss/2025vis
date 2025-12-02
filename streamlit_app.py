@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import numpy as np  # 좌표 계산용
+import numpy as np
 from googletrans import Translator
 
 # 1. 페이지 설정
@@ -30,9 +30,9 @@ UI_TEXT = {
         'tab1': "📊 지도 & 차트 분석",
         'tab2': "📋 상세 리스트 (카드 보기)",
         'tab3': "🌸 계절별 추천",
-        'chart_map': "🗺️ 축제 위치 지도 (지역별 분포)",
+        'chart_map': "🗺️ 축제 위치 지도 (규모 및 유형 분포)", # 제목 수정
         'chart_treemap': "지역별 & 유형별 분포",
-        'chart_sunburst': "🎯 유형별 지역 분포 (Sunburst Chart)", # [변경]
+        'chart_sunburst': "🎯 유형별 지역 분포 (Sunburst Chart)",
         'chart_top10': "🏆 외국인 방문객 Top 10",
         'list_header': "검색 결과 상세 리스트",
         'col_name': "축제명", 'col_loc': "지역", 'col_type': "유형", 'col_date': "월", 'col_for': "외국인수",
@@ -59,9 +59,9 @@ UI_TEXT = {
         'tab1': "📊 Map & Charts",
         'tab2': "📋 Detailed List (Card View)",
         'tab3': "🌸 Seasonal Picks",
-        'chart_map': "🗺️ Festival Map Location",
+        'chart_map': "🗺️ Festival Map Location (Scale & Type Distribution)", # 제목 수정
         'chart_treemap': "Distribution by Region & Type",
-        'chart_sunburst': "🎯 Distribution by Type & Region (Sunburst)", # [변경]
+        'chart_sunburst': "🎯 Distribution by Type & Region (Sunburst)",
         'chart_top10': "🏆 Top 10 Popular for Foreigners",
         'list_header': "Detailed Search Results",
         'col_name': "Name", 'col_loc': "Region", 'col_type': "Category", 'col_date': "Month", 'col_for': "Foreigners",
@@ -83,8 +83,8 @@ REGION_MAP = {
 }
 
 TYPE_MAP = {
-    '문화예술': 'Arts & Culture', '지역특산물': 'Local Specialties', 
-    '자연생태': 'Nature', '전통역사': 'History', 
+    '문화예술': 'Arts & Culture', '지역특산물': 'Local Specialties',
+    '자연생태': 'Nature', '전통역사': 'History',
     '주민화합': 'Community', '기타': 'Others'
 }
 
@@ -126,15 +126,16 @@ def load_data():
     df['Type_En'] = df['festivaltype'].map(TYPE_MAP).fillna('Others')
     df['festivalname'] = df['festivalname'].fillna('')
     
-    # 축제 이름 자동 번역
+    # 축제 이름 자동 번역 (간소화된 방식 사용)
     translator = Translator()
     unique_names = df['festivalname'].unique()
     name_map = {}
     
     for name in unique_names:
         try:
+            # 축제, 대회 등의 단어를 영문으로 치환 (간소화)
             temp_name = name.replace("축제", " Festival").replace("대회", " Contest")
-            name_map[name] = temp_name 
+            name_map[name] = temp_name
         except:
             name_map[name] = name
 
@@ -148,6 +149,7 @@ def load_data():
     df['lat'] = df['state'].map(lambda x: LOC_COORDS.get(x, [36.5, 127.5])[0])
     df['lon'] = df['state'].map(lambda x: LOC_COORDS.get(x, [36.5, 127.5])[1])
     
+    # 좌표 분산을 주어 겹치는 마커가 덜 겹치도록 함
     np.random.seed(42)
     noise = 0.04
     df['lat'] = df['lat'] + np.random.uniform(-noise, noise, size=len(df))
@@ -159,7 +161,7 @@ with st.spinner('Data loading & Translating... (May take a moment)'):
     df = load_data()
 
 # ---------------------------------------------------------
-# 4. 사이드바
+# 4. 사이드바 (필터)
 # ---------------------------------------------------------
 with st.sidebar:
     lang_code = st.radio("Language", ['KO', 'EN'], horizontal=True, label_visibility="collapsed")
@@ -194,7 +196,7 @@ filtered_df = df[
 
 if search_query:
     filtered_df = filtered_df[
-        filtered_df['festivalname'].str.contains(search_query, case=False) | 
+        filtered_df['festivalname'].str.contains(search_query, case=False) |
         filtered_df['festivalname_en'].str.contains(search_query, case=False)
     ]
 
@@ -203,6 +205,7 @@ if search_query:
 # ---------------------------------------------------------
 st.title(txt['title'])
 
+# KPI Metric
 c1, c2, c3 = st.columns(3)
 c1.metric(txt['kpi_total'], f"{len(filtered_df)}")
 c2.metric(txt['kpi_visitors'], f"{int(filtered_df['visitors_clean'].sum()):,}")
@@ -210,27 +213,59 @@ c3.metric(txt['kpi_foreigner'], f"{int(filtered_df['foreigner_clean'].sum()):,}"
 
 st.divider()
 
-# 탭을 3개로 확장
+# 탭 구조
 tab1, tab2, tab3 = st.tabs([txt['tab1'], txt['tab2'], txt['tab3']])
 
 # --- TAB 1: 차트 (지도 및 분석) ---
 with tab1:
     st.subheader(txt['chart_map'])
     if not filtered_df.empty:
+        # **지도 시각화 개선 (방문객 규모와 유형 강조)**
         fig_map = px.scatter_mapbox(
-            filtered_df, lat="lat", lon="lon",
-            size="visitors_clean", color=type_col,
+            filtered_df, 
+            lat="lat", 
+            lon="lon",
+            # 방문객 규모에 따라 마커 크기 설정
+            size="visitors_clean", 
+            # 축제 유형에 따라 색상 설정
+            color=type_col, 
+            # 최대 마커 크기 제한
+            size_max=30,  
+            
+            # 호버 정보 설정
             hover_name=name_col,
-            hover_data={"lat": False, "lon": False, "visitors_clean": True, region_col: True},
-            color_discrete_sequence=px.colors.qualitative.Bold,
-            zoom=6, center={"lat": 36.5, "lon": 127.5},
-            mapbox_style="carto-positron"
+            hover_data={
+                "lat": False, "lon": False,  # 좌표 숨김
+                "visitors_clean": ':,0f',    # 방문객 수 포맷
+                region_col: True,
+                type_col: True
+            },
+            
+            # 화려한 색상 팔레트 사용
+            color_discrete_sequence=px.colors.qualitative.Vivid, 
+            
+            # 초기 지도 설정 및 스타일 변경 (더 눈에 띄게)
+            zoom=6, 
+            center={"lat": 36.5, "lon": 127.5},
+            mapbox_style="open-street-map" # 지도를 더 상세하게 보여주는 스타일
         )
-        fig_map.update_layout(margin={"r":0,"t":0,"l":0,"b":0}, height=500)
+        
+        # 지도 레이아웃 조정
+        fig_map.update_layout(
+            margin={"r":0,"t":0,"l":0,"b":0}, 
+            height=550, 
+            # 범례 위치 조정
+            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+        )
+        
         st.plotly_chart(fig_map, use_container_width=True)
+    
+    else:
+        st.warning("No festivals found based on the current filters.")
     
     st.markdown("---")
 
+    # Treemap 및 Top 10 차트 (기존 유지)
     col_chart1, col_chart2 = st.columns(2)
     with col_chart1:
         st.subheader(txt['chart_treemap'])
@@ -254,22 +289,17 @@ with tab1:
             fig_bar.update_layout(yaxis={'categoryorder':'total ascending'}, showlegend=False)
             st.plotly_chart(fig_bar, use_container_width=True)
 
-    # [변경] 썬버스트 차트 (Sunburst Chart) 추가
+    # 썬버스트 차트 (기존 유지)
     st.markdown("---")
     st.subheader(txt['chart_sunburst'])
     if not filtered_df.empty:
-        # Sunburst Chart (계층 구조 시각화)
-        # 안쪽 원: 축제 유형 -> 바깥쪽 원: 지역
-        # 유형을 먼저 선택하고 그 안에 어떤 지역들이 있는지 보는 구조
         fig_sun = px.sunburst(
             filtered_df,
             path=[type_col, region_col],
             values='visitors_clean',
-            color=type_col, # 유형별 색상 구분
+            color=type_col,
             color_discrete_sequence=px.colors.qualitative.Pastel
         )
-        
-        # 레이아웃 조정
         fig_sun.update_layout(margin=dict(t=10, l=10, r=10, b=10))
         st.plotly_chart(fig_sun, use_container_width=True)
         
@@ -330,8 +360,8 @@ with tab3:
     }
     
     selected_season_key = st.radio(
-        "Select Season", 
-        list(season_opts.keys()), 
+        "Select Season",
+        list(season_opts.keys()),
         format_func=lambda x: season_opts[x],
         horizontal=True,
         label_visibility="collapsed"
